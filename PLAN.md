@@ -75,7 +75,7 @@ haji-ai/
 
 #### TASK-001 项目初始化
 
-- **状态：** ⬜ 未开始
+- **状态：** ✅ 已完成
 - **目标：** 建立项目骨架，配置开发环境
 - **具体任务：**
   - [ ] 创建完整目录结构
@@ -90,27 +90,35 @@ haji-ai/
 
 #### TASK-002 config 模块
 
-- **状态：** ⬜ 未开始
+- **状态：** ✅ 已完成
+- **完成时间：** 2026-04-13 20:25
 - **依赖：** TASK-001
 - **目标：** 统一配置入口，所有模块从这里读取配置
 - **具体任务：**
-  - [ ] `HaijiConfig` 数据类（Pydantic BaseSettings）
-  - [ ] 支持环境变量读取（`HAIJI_LLM_MODEL`、`HAIJI_API_KEY` 等）
-  - [ ] 支持 `.env` 文件
-  - [ ] 全局单例访问 `get_config()`
+  - [x] `HaijiConfig` 数据类（Pydantic BaseSettings）
+  - [x] 支持环境变量读取（`HAIJI_LLM_MODEL`、`HAIJI_API_KEY` 等，前缀 `HAIJI_`）
+  - [x] 支持 `.env` 文件
+  - [x] 全局单例访问 `get_config()`，以及 `set_config()` / `reset_config()` 用于测试
 - **关键设计：**
   ```python
-  from haiji import HaijiConfig
-  config = HaijiConfig(llm_model="gpt-4o", api_key="sk-xxx")
+  from haiji import HaijiConfig, get_config
+  config = get_config()                                    # 从环境变量 / .env 自动读取
+  config = HaijiConfig(llm_model="gpt-4o", api_key="sk-xxx")  # 显式传参
   ```
-- **产出：** `haiji/config/` 模块可用
-- **预计工时：** 2h
+- **产出：** `haiji/config/` 模块可用，测试 19 个全通过，覆盖率 100%
 
 ---
 
 #### TASK-003 llm 模块
 
 - **状态：** ⬜ 未开始
+- **下一次执行说明：** 在 haiji/llm/ 下实现以下文件：
+  1. `definition.py`：定义 LlmMessage（role: system/user/assistant/tool, content, tool_call_id）、LlmRequest（messages, tools, temperature, max_tokens, stream）、LlmResponse（content, tool_calls, usage: prompt_tokens/completion_tokens/total_tokens）、LlmUsage、ToolCall（id, function_name, arguments_json）
+  2. `base.py`：定义 LlmClient 抽象基类，方法 async chat(request) -> LlmResponse 和 async def stream_chat(request) -> AsyncGenerator[str, None]（token 流）
+  3. `impl/openai_client.py`：OpenAILlmClient 实现，使用 openai 官方 SDK（openai.AsyncOpenAI），三层配置合并（runtime > agent > global），LLM 调用超时从 config.llm_timeout 取；Function Calling 参数用 tools 字段（openai 新格式）
+  4. `__init__.py`：只导出公共接口
+  - 注意：所有 I/O 操作必须 async，LLM 调用必须设置超时（config.llm_timeout），stream_chat 返回 async generator
+  - 测试：用 unittest.mock 的 AsyncMock mock 掉 openai SDK，不要真实调用，覆盖率 >= 80%
 - **依赖：** TASK-002
 - **目标：** 封装大模型调用，支持流式和非流式，屏蔽厂商差异
 - **具体任务：**
@@ -319,6 +327,6 @@ haji-ai/
 ## 进度快照
 
 - **当前阶段：** 第一期
-- **当前任务：** TASK-001（项目初始化）
-- **已完成任务数：** 0 / 31
-- **最后更新：** 2026-04-13
+- **当前任务：** TASK-003（llm 模块）
+- **已完成任务数：** 2 / 31
+- **最后更新：** 2026-04-13 20:30
