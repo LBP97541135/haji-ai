@@ -111,7 +111,7 @@ haji-ai/
 
 #### TASK-003 llm 模块
 
-- **状态：** ⬜ 未开始
+- **状态：** ✅ 已完成
 - **下一次执行说明：** 在 haiji/llm/ 下实现以下文件：
   1. `definition.py`：定义 LlmMessage（role: system/user/assistant/tool, content, tool_call_id）、LlmRequest（messages, tools, temperature, max_tokens, stream）、LlmResponse（content, tool_calls, usage: prompt_tokens/completion_tokens/total_tokens）、LlmUsage、ToolCall（id, function_name, arguments_json）
   2. `base.py`：定义 LlmClient 抽象基类，方法 async chat(request) -> LlmResponse 和 async def stream_chat(request) -> AsyncGenerator[str, None]（token 流）
@@ -143,7 +143,7 @@ haji-ai/
 
 #### TASK-004 sse 模块
 
-- **状态：** ⬜ 未开始
+- **状态：** ✅ 已完成
 - **依赖：** TASK-003
 - **目标：** 统一的流式事件发射器，解耦执行层和输出层
 - **具体任务：**
