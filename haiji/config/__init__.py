@@ -1,28 +1,19 @@
-"""haiji.config — 框架配置中心。
+"""
+config - 配置中心
 
-统一管理 haiji 框架所有模块的配置，支持：
-- 环境变量读取（前缀 HAIJI_）
-- .env 文件加载
-- 显式传参覆盖
-- 全局单例访问
+框架唯一的配置入口，所有模块都从这里读取配置。
 
-公共接口::
+示例：
+    from haiji.config import get_config, set_config, HaijiConfig
 
-    from haiji.config import HaijiConfig, get_config, set_config, reset_config
-
-    # 获取全局配置（自动从环境变量 / .env 读取）
+    # 读取配置（自动从环境变量 / .env 加载）
     config = get_config()
 
-    # 显式创建配置（测试常用）
-    config = HaijiConfig(llm_model="gpt-4o-mini", api_key="sk-xxx")
+    # 自定义配置
+    set_config(HaijiConfig(llm_model="gpt-4o-mini", api_key="sk-xxx"))
 """
 
-from haiji.config.base import get_config, reset_config, set_config
 from haiji.config.definition import HaijiConfig
+from haiji.config.base import get_config, set_config, reset_config
 
-__all__ = [
-    "HaijiConfig",
-    "get_config",
-    "set_config",
-    "reset_config",
-]
+__all__ = ["HaijiConfig", "get_config", "set_config", "reset_config"]

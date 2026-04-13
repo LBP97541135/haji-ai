@@ -1,66 +1,44 @@
-"""config 模块的全局单例管理。
+"""
+config/base.py - 配置中心
 
-提供线程安全（Python GIL 保证）的全局单例 get_config() 和
-用于测试的 set_config() / reset_config()。
+提供全局单例访问 get_config()，整个框架所有模块都从这里读取配置。
 """
 
-from __future__ import annotations
-
 from typing import Optional
-
 from haiji.config.definition import HaijiConfig
 
-_global_config: Optional[HaijiConfig] = None
+_config: Optional[HaijiConfig] = None
 
 
 def get_config() -> HaijiConfig:
-    """获取全局配置单例。
+    """
+    获取全局配置单例。
 
-    首次调用时自动从环境变量和 .env 文件初始化配置；
-    后续调用返回同一实例。
+    首次调用时自动从环境变量 / .env 文件加载。
+    如需覆盖，请先调用 set_config()。
 
-    Returns:
-        HaijiConfig: 框架全局配置实例。
-
-    Example::
-
-        from haiji.config import get_config
+    示例：
         config = get_config()
         print(config.llm_model)
     """
-    global _global_config
-    if _global_config is None:
-        _global_config = HaijiConfig()
-    return _global_config
+    global _config
+    if _config is None:
+        _config = HaijiConfig()
+    return _config
 
 
 def set_config(config: HaijiConfig) -> None:
-    """替换全局配置单例。
-
-    主要用于测试场景，或在应用启动时显式覆盖配置。
-
-    Args:
-        config: 新的 HaijiConfig 实例。
-
-    Example::
-
-        from haiji.config import set_config, HaijiConfig
-        set_config(HaijiConfig(llm_model="gpt-4o-mini", api_key="sk-test"))
     """
-    global _global_config
-    _global_config = config
+    覆盖全局配置（用于测试或自定义初始化）。
+
+    示例：
+        set_config(HaijiConfig(llm_model="gpt-4o-mini", api_key="sk-xxx"))
+    """
+    global _config
+    _config = config
 
 
 def reset_config() -> None:
-    """重置全局配置单例（清空缓存）。
-
-    下次调用 get_config() 时将重新从环境变量读取。
-    主要用于测试的 teardown。
-
-    Example::
-
-        from haiji.config import reset_config
-        reset_config()
-    """
-    global _global_config
-    _global_config = None
+    """重置配置单例，下次 get_config() 时重新从环境变量加载（主要用于测试）。"""
+    global _config
+    _config = None
