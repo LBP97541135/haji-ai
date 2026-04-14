@@ -1,6 +1,6 @@
 // pages/Chat/index.tsx - 会话页（微信风格）
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Send, MessageCircle } from 'lucide-react'
+import { Send, MessageCircle, Trash2 } from 'lucide-react'
 import { api } from '../../api/client'
 import type { AgentSummary } from '../../api/client'
 import MessageBubble from '../../components/MessageBubble'
@@ -22,7 +22,26 @@ interface SessionState {
 export default function ChatPage() {
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selectedAgent, setSelectedAgent] = useState<AgentSummary | null>(null)
-  const [sessions, setSessions] = useState<Record<string, SessionState>>({})
+  const [sessions, setSessions] = useState<Record<string, SessionState>>(() => {
+    try {
+      const saved = localStorage.getItem('haji_sessions')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        // 恢复每个消息的 timestamp（Date 序列化成了字符串）
+        Object.values(parsed).forEach((session: unknown) => {
+          const s = session as SessionState
+          s.messages = s.messages.map((m) => ({
+            ...m,
+            timestamp: m.timestamp ? new Date(m.timestamp as unknown as string) : undefined,
+          }))
+        })
+        return parsed
+      }
+    } catch {
+      // ignore parse errors
+    }
+    return {}
+  })
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [loadingAgents, setLoadingAgents] = useState(true)
@@ -43,6 +62,15 @@ export default function ChatPage() {
         console.error(err)
       })
   }, [])
+
+  // 持久化 sessions 到 localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('haji_sessions', JSON.stringify(sessions))
+    } catch {
+      // localStorage 满了或不可用，忽略
+    }
+  }, [sessions])
 
   // 滚动到底部
   useEffect(() => {
@@ -206,6 +234,20 @@ export default function ChatPage() {
                 <div className="font-semibold text-gray-800">{selectedAgent.name}</div>
                 <div className="text-xs text-gray-400">{selectedAgent.bio}</div>
               </div>
+              <button
+                onClick={() => {
+                  if (!selectedAgent) return
+                  setSessions(prev => {
+                    const next = { ...prev }
+                    delete next[selectedAgent.code]
+                    return next
+                  })
+                }}
+                className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                title="清除聊天记录"
+              >
+                <Trash2 size={16} />
+              </button>
             </header>
 
             {/* 消息区 */}
