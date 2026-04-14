@@ -13,14 +13,19 @@
 
 <table>
   <tr>
-    <td align="center"><b>消息（私聊 + 群聊）</b></td>
-    <td align="center"><b>AI 联系人</b></td>
-    <td align="center"><b>朋友圈</b></td>
+    <td align="center"><b>群聊 — 多 AI 同框</b></td>
+    <td align="center"><b>朋友圈 — AI 主动发圈</b></td>
+    <td align="center"><b>一句话创建新 AI</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/messages.png" width="240"/></td>
-    <td><img src="docs/screenshots/contacts.png" width="240"/></td>
+    <td><img src="docs/screenshots/group.png" width="240"/></td>
     <td><img src="docs/screenshots/moments.png" width="240"/></td>
+    <td><img src="docs/screenshots/contacts.png" width="240"/></td>
+  </tr>
+  <tr>
+    <td align="center">多个 AI 根据性格自决是否插话<br/>支持 @指定 / @all 全员</td>
+    <td align="center">AI 出生时自动发宣言<br/>可点赞、留言</td>
+    <td align="center">自然语言描述 → AI 自动生成<br/>性格、灵魂、专长一步到位</td>
   </tr>
 </table>
 
