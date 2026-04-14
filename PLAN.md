@@ -399,6 +399,25 @@ haji-ai/
     - `__init__.py`：导出 `RagConfig`, `RagResult`, `RagRetriever`
   - **测试：** `tests/test_rag.py`，**25 个测试全通过**，覆盖率 **97.67%**
   - **全套测试：** 248 个（含新增 25 个），全部通过，无 regression
+- **TASK-014b** RAG 重构（可插拔知识库 + Agent 级别 RAG 集成）
+  - **状态：** ✅ 已完成
+  - **完成时间：** 2026-04-14 11:45
+  - **依赖：** TASK-014（原始 RAG）、TASK-013（knowledge）
+  - **目标：** 重构 RAG 模块，实现可插拔知识库 + Agent 级别 RAG 集成。核心原则：流程先跑通，但架构预留扩展空间（后期要支持关键词/向量混合检索、父子检索、同类检索等，所有扩展点用抽象接口隔离，不要写死）
+  - **实现内容：**
+    - `knowledge/base_kb.py`：新增 `KBResult`（内外知识库统一返回格式，含 score/doc_id/chunk_id/metadata）、`BaseKnowledgeBase`（可插拔抽象基类，含 search/on_before_search/on_after_search 钩子，预留混合检索/父子检索扩展点）
+    - `knowledge/embedder.py`：新增 `QwenEmbedder`（qwen3-embedding-8b，通过 MaaS 平台调用，支持 batch_size 分批，维度 4096）
+    - `knowledge/knowledge_base.py`：新增 `KnowledgeBase`（内置知识库实现，继承 BaseKnowledgeBase，当前为向量检索，预留混合检索注释，含 load_text/load_file/search/delete_doc/info 方法）
+    - `knowledge/__init__.py`：导出新增类 `KBResult`, `BaseKnowledgeBase`, `KnowledgeBase`, `QwenEmbedder`
+    - `rag/definition.py`：`RagResult.chunks` → `RagResult.results: list[KBResult]`（不再依赖 DocumentChunk）
+    - `rag/retriever.py`：重构 `RagRetriever`，改为接受 `BaseKnowledgeBase` 而不是 `InMemoryKnowledgeStore + embedder`，内部直接调用 `kb.search`
+    - `agent/base.py`：`@agent` 装饰器新增 `rag` 和 `rag_config` 参数；`BaseAgent.__init__` 创建 `_rag_retriever`；`_prepare_execution` 改为 async，支持 RAG 注入（inject_mode=system_suffix/user_prefix）；`_rag_retriever` 为 None 时完全走原路径
+  - **测试：** `tests/test_rag.py` 重写（25 个测试，使用 MockKnowledgeBase 适配新 API）；`tests/test_knowledge.py` 新增 `TestKBResult`/`TestBaseKnowledgeBase`/`TestKnowledgeBase`/`TestQwenEmbedder`（29 个测试）；`tests/test_agent.py` 新增 RAG 集成测试（7 个测试）；**全套测试：530 个全部通过**
+  - **关键设计：**
+    - 外部知识库只需继承 `BaseKnowledgeBase` 并实现 `search` 方法即可无缝接入
+    - `on_before_search`/`on_after_search` 钩子默认 no-op，便于后期扩展（query 改写、rerank 等）
+    - `KnowledgeBase.search` 内部调用钩子 → embed → store.search → 重算 score → 过滤 → 钩子，流程清晰
+    - Agent RAG 集成最小侵入：`_rag_retriever` 为 None 时零开销，原有代码路径完全不变
 - **TASK-015** api 模块（外部 API 适配 + 框架自身 HTTP 导出）
   - **状态：** ✅ 已完成
   - **完成时间：** 2026-04-14 04:08
@@ -596,11 +615,11 @@ haji-ai/
 
 - **当前阶段：** 第三期进行中（TASK-020 ✅ 已完成）
 - **当前任务：** TASK-021 designer 模块（AI 设计器，自然语言 → Agent/工作流定义）
-- **已完成任务数：** 20 / 31
+- **已完成任务数：** 21 / 32
 - **第一期完成情况：** TASK-001 ～ TASK-010 全部 ✅，可运行端到端示例，98 个测试通过
-- **第二期完成情况：** TASK-011 ✅（prompt 34测试 98%）；TASK-012 ✅（workspace 27测试 98%）；TASK-013 ✅（knowledge 64测试 92.5%）；TASK-014 ✅（rag 25测试 97.67%）；TASK-015 ✅（api 17测试 89%）；TASK-016 ✅（observer 37测试 100%）；TASK-017 ✅（集成示例 3个脚本全跑通）；总测试数 302 个
-- **第三期完成情况：** TASK-018 ✅（startup 67测试 91.11%）；TASK-019 ✅（workflow 52测试 98.54%）；TASK-020 ✅（sandbox 58测试 98.77%）；总测试数 479 个
-- **最后更新：** 2026-04-14 09:20
+- **第二期完成情况：** TASK-011 ✅（prompt 34测试 98%）；TASK-012 ✅（workspace 27测试 98%）；TASK-013 ✅（knowledge 64测试 92.5%）；TASK-014 ✅（rag 25测试 97.67%）；TASK-014b ✅（RAG 重构，61 个新增测试）；TASK-015 ✅（api 17测试 89%）；TASK-016 ✅（observer 37测试 100%）；TASK-017 ✅（集成示例 3个脚本全跑通）；总测试数 363 个
+- **第三期完成情况：** TASK-018 ✅（startup 67测试 91.11%）；TASK-019 ✅（workflow 52测试 98.54%）；TASK-020 ✅（sandbox 58测试 98.77%）；总测试数 530 个
+- **最后更新：** 2026-04-14 11:45
 
 ### 第二期推进顺序（更新）
 

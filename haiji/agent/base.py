@@ -689,6 +689,10 @@ def agent(
     tools: Optional[list[Any]] = None,
     code: Optional[str] = None,
     name: Optional[str] = None,
+    avatar: str = "",
+    bio: str = "",
+    soul: str = "",
+    tags: Optional[list[str]] = None,
     max_rounds: int = 10,
     llm_config_override: Optional[dict[str, Any]] = None,
     rag: Optional[Any] = None,
@@ -756,13 +760,25 @@ def agent(
         # 读取类上定义的 system_prompt（若有）
         cls_system_prompt = getattr(cls, "system_prompt", "")
 
+        # soul 注入：soul 文档拼接到 system_prompt 最前面
+        final_system_prompt = cls_system_prompt
+        cls_soul = soul or getattr(cls, "soul", "")
+        if cls_soul and cls_system_prompt:
+            final_system_prompt = f"{cls_soul}\n\n---\n\n{cls_system_prompt}"
+        elif cls_soul:
+            final_system_prompt = cls_soul
+
         definition = AgentDefinition(
             code=agent_code,
             name=name or agent_code,
+            avatar=avatar,
+            bio=bio,
+            soul=cls_soul,
             mode=AgentMode(mode),
-            system_prompt=cls_system_prompt,
+            system_prompt=final_system_prompt,
             required_skill_codes=skill_codes,
             required_tool_codes=tool_codes,
+            tags=tags or [],
             max_rounds=max_rounds,
             llm_config_override=llm_config_override,
         )

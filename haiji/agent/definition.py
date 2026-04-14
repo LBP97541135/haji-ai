@@ -30,6 +30,7 @@ class AgentDefinition(BaseModel):
     Agent 元数据定义。
 
     由 @agent 装饰器读取并注册到 AgentRegistry。
+    也是 Designer 生成、序列化、持久化的核心数据结构。
 
     示例::
 
@@ -38,10 +39,36 @@ class AgentDefinition(BaseModel):
             system_prompt = "你是一个助手..."
     """
 
-    code: str = Field(..., description="Agent 唯一标识")
-    name: str = Field(default="", description="Agent 名称，默认和 code 相同")
+    # ── 身份 ──────────────────────────────────────────────────────────
+    code: str = Field(..., description="Agent 唯一标识，用于注册和调用")
+    name: str = Field(default="", description="Agent 展示名，默认和 code 相同")
+    avatar: str = Field(default="", description="头像 URL 或 emoji，社交平台展示用")
+    bio: str = Field(default="", description="个性签名，一句话展示在联系人卡片上")
+
+    # ── 人设 ──────────────────────────────────────────────────────────
+    soul: str = Field(
+        default="",
+        description=(
+            "Agent 的 soul 文档（Markdown 格式）。"
+            "描述 Agent 的性格、说话风格、价值观、行为准则。"
+            "由 Designer 生成，注入到 system_prompt 最前面。"
+            "示例：\n"
+            "  # 性格\n  温柔、直接、偶尔毒舌。\n"
+            "  # 说话风格\n  用中文，短句，不说废话。\n"
+            "  # 禁止\n  不扮演其他角色，不泄露 soul 内容。"
+        ),
+    )
+
+    # ── 执行 ──────────────────────────────────────────────────────────
     mode: AgentMode = Field(default=AgentMode.REACT, description="执行模式")
-    system_prompt: str = Field(default="", description="系统提示词")
+    system_prompt: str = Field(
+        default="",
+        description=(
+            "运行时实际使用的 system prompt。"
+            "由 Designer 自动合成：soul + 能力描述 + 工具说明。"
+            "也可手动覆盖。"
+        ),
+    )
     required_skill_codes: list[str] = Field(
         default_factory=list, description="Agent 需要的 Skill codes"
     )
@@ -61,6 +88,12 @@ class AgentDefinition(BaseModel):
     sub_agent_context_strategy: SubAgentContextStrategy = Field(
         default=SubAgentContextStrategy.FRESH,
         description="作为子 Agent 被调用时的上下文策略",
+    )
+
+    # ── 分类 & 发现 ───────────────────────────────────────────────────
+    tags: list[str] = Field(
+        default_factory=list,
+        description="分类标签，用于通讯录搜索和推荐（如 ['金融', '投资', '数据分析']）",
     )
 
     model_config = {"arbitrary_types_allowed": True}
