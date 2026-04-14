@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Send, Users, Settings, Plus, X, Crown, Shield, Ban, UserMinus, ChevronRight } from 'lucide-react'
 import AvatarBubble from '../../components/AvatarBubble'
 
-const BASE_URL = 'http://localhost:8766'
+const BASE_URL = 'http://10.40.108.146:8766'
 
 interface GroupMemberInfo {
   agent_code: string

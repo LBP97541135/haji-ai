@@ -1,5 +1,5 @@
 // api/client.ts - 封装所有后端 API 调用
-const BASE_URL = 'http://localhost:8766'
+const BASE_URL = 'http://10.40.108.146:8766'
 
 // 过滤 <think>...</think> 思考块（minimax 模型会返回这个）
 export function filterThink(content: string): string {
