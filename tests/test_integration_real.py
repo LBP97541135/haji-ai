@@ -281,16 +281,13 @@ async def test_multi_turn_memory(llm_client):
 @pytest.mark.asyncio
 async def test_rag_inject_to_agent(llm_client):
     from haiji.knowledge import (
-        TextChunker, ChunkConfig, KnowledgeDocument,
-        InMemoryKnowledgeStore, MockEmbedder,
+        TextChunker, ChunkConfig, KnowledgeBase, MockEmbedder,
     )
     from haiji.rag import RagRetriever, RagConfig
     from haiji.agent.base import BaseAgent
     from haiji.agent import agent
     from haiji.memory import SessionMemoryManager
     from haiji.sse import SseEventEmitter
-
-    # 1. 构建知识库
     knowledge_text = (
         "哈基AI（haji-ai）是一个基于 Python 的 Multi-Agent 框架。"
         "支持三种 Agent 执行模式：DIRECT（直接问答）、REACT（循环推理+工具调用）、"
@@ -299,29 +296,17 @@ async def test_rag_inject_to_agent(llm_client):
         "Skill 动态加载、内置可观测性（链路追踪、token 统计）。"
         "哈基AI由吕祎晗开发，是他的个人开源项目，目标是易于调用并支持 AI 驱动的 Agent 设计。"
     )
-    doc = KnowledgeDocument(doc_id="haji-doc", source="readme", content=knowledge_text)
-    chunker = TextChunker(ChunkConfig(chunk_size=150, overlap=20))
-    chunks = chunker.chunk(doc)
 
     embedder = MockEmbedder(dim=16, seed=42)
-    chunks_with_emb = []
-    for c in chunks:
-        c.embedding = await embedder.embed(c.content)
-        chunks_with_emb.append(c)
-
-    store = InMemoryKnowledgeStore()
-    store.add_document(doc, chunks_with_emb)
+    kb = KnowledgeBase(embedder, store_id="t7_kb", chunker=TextChunker(ChunkConfig(chunk_size=150, chunk_overlap=20)))
+    await kb.load_text(knowledge_text, doc_id="haji-doc", source="readme")
 
     # 2. RAG 检索
-    rag = RagRetriever(
-        store=store,
-        embedder=embedder,
-        config=RagConfig(top_k=3, score_threshold=0.0),
-    )
+    rag = RagRetriever(kb, RagConfig(top_k=3, score_threshold=0.0))
     rag_result = await rag.retrieve("哈基AI支持哪些Agent模式")
-    print(f"\n[T7 RAG] chunks={len(rag_result.chunks)}")
+    print(f"\n[T7 RAG] results={len(rag_result.results)}")
     print(f"[T7 RAG] injected preview: {rag_result.injected_text[:80]}...")
-    assert len(rag_result.chunks) > 0
+    assert len(rag_result.results) > 0
 
     # 3. 注入 system prompt
     enhanced_prompt = (

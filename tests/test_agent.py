@@ -590,7 +590,9 @@ def test_prepare_execution_collects_tools(isolated_registries):
         system_prompt = "基础提示"
 
     instance = PrepAgent()
-    llm_tools, system_prompt = instance._prepare_execution()
+    llm_tools, system_prompt = asyncio.get_event_loop().run_until_complete(
+        instance._prepare_execution()
+    )
 
     assert len(llm_tools) == 1
     assert llm_tools[0].function.name == "skill_tool"
@@ -749,3 +751,150 @@ def test_agent_registry_contains():
     assert "contains_code" in registry
     assert "not_exists" not in registry
     assert registry.all() == {"contains_code": ContainsAgent}
+
+
+# ---------------------------------------------------------------------------
+# TASK-014b RAG 集成测试
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_agent_rag_none_takes_original_path(isolated_registries):
+    """_rag_retriever 为 None 时，stream_chat 完全走原路径。"""
+    @agent(mode="direct", code="no_rag_agent")
+    class NoRagAgent(BaseAgent):
+        system_prompt = "基础提示词"
+
+    instance = NoRagAgent()
+    assert instance._rag_retriever is None
+
+    llm_tools, prompt = await instance._prepare_execution(user_message="hello")
+    # 没有 RAG，prompt 应与 system_prompt 一致
+    assert "基础提示词" in prompt
+    assert "以下是相关知识" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_rag_injected_into_system_prompt(isolated_registries):
+    """配置 RAG 后，system_prompt 里注入了知识内容（inject_mode=system_suffix）。"""
+    from unittest.mock import AsyncMock, MagicMock
+    from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
+    from haiji.rag.definition import RagConfig
+
+    mock_kb = AsyncMock(spec=BaseKnowledgeBase)
+    mock_kb.search = AsyncMock(return_value=[
+        KBResult(content="Python 是一种编程语言", score=0.9)
+    ])
+
+    @agent(mode="direct", code="rag_agent_inject", rag=mock_kb, rag_config=RagConfig(top_k=3))
+    class RagInjectAgent(BaseAgent):
+        system_prompt = "你是助手"
+
+    instance = RagInjectAgent()
+    assert instance._rag_retriever is not None
+
+    llm_tools, prompt = await instance._prepare_execution(user_message="Python 是什么")
+    assert "你是助手" in prompt
+    assert "以下是相关知识" in prompt
+    assert "Python 是一种编程语言" in prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_rag_inject_mode_user_prefix(isolated_registries):
+    """inject_mode=user_prefix 时，知识内容也注入到 system_prompt。"""
+    from unittest.mock import AsyncMock
+    from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
+    from haiji.rag.definition import RagConfig
+
+    mock_kb = AsyncMock(spec=BaseKnowledgeBase)
+    mock_kb.search = AsyncMock(return_value=[
+        KBResult(content="相关知识内容", score=0.85)
+    ])
+
+    @agent(
+        mode="direct",
+        code="rag_user_prefix",
+        rag=mock_kb,
+        rag_config=RagConfig(top_k=2, inject_mode="user_prefix"),
+    )
+    class RagUserPrefixAgent(BaseAgent):
+        system_prompt = "基础提示"
+
+    instance = RagUserPrefixAgent()
+    llm_tools, prompt = await instance._prepare_execution(user_message="查询")
+    assert "相关知识内容" in prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_rag_empty_result_no_injection(isolated_registries):
+    """RAG 检索无结果时，system_prompt 不注入额外内容。"""
+    from unittest.mock import AsyncMock
+    from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
+    from haiji.rag.definition import RagConfig
+
+    mock_kb = AsyncMock(spec=BaseKnowledgeBase)
+    mock_kb.search = AsyncMock(return_value=[])  # 无结果
+
+    @agent(mode="direct", code="rag_empty", rag=mock_kb)
+    class RagEmptyAgent(BaseAgent):
+        system_prompt = "原始提示词"
+
+    instance = RagEmptyAgent()
+    llm_tools, prompt = await instance._prepare_execution(user_message="查询")
+    assert prompt == "原始提示词"
+
+
+@pytest.mark.asyncio
+async def test_agent_rag_failure_gracefully_degraded(isolated_registries):
+    """RAG 检索失败时不阻断主流程，降级为无 RAG 路径。"""
+    from unittest.mock import AsyncMock
+    from haiji.knowledge.base_kb import BaseKnowledgeBase
+
+    mock_kb = AsyncMock(spec=BaseKnowledgeBase)
+    mock_kb.search = AsyncMock(side_effect=RuntimeError("网络异常"))
+
+    @agent(mode="direct", code="rag_fail", rag=mock_kb)
+    class RagFailAgent(BaseAgent):
+        system_prompt = "降级提示词"
+
+    instance = RagFailAgent()
+    # 不应抛异常
+    llm_tools, prompt = await instance._prepare_execution(user_message="查询")
+    assert "降级提示词" in prompt
+
+
+def test_agent_decorator_accepts_rag_params(isolated_registries):
+    """@agent 装饰器支持 rag 和 rag_config 参数。"""
+    from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
+    from haiji.rag.definition import RagConfig
+    from unittest.mock import AsyncMock
+
+    mock_kb = AsyncMock(spec=BaseKnowledgeBase)
+    rag_config = RagConfig(top_k=5, inject_mode="system_suffix")
+
+    @agent(mode="direct", code="rag_param_test", rag=mock_kb, rag_config=rag_config)
+    class RagParamAgent(BaseAgent):
+        system_prompt = "测试"
+
+    instance = RagParamAgent()
+    assert instance._rag_retriever is not None
+    assert instance._rag_retriever.config.top_k == 5
+    assert instance._rag_retriever.config.inject_mode == "system_suffix"
+
+
+@pytest.mark.asyncio
+async def test_agent_rag_empty_message_skips_search(isolated_registries):
+    """user_message 为空时，不调用 kb.search。"""
+    from unittest.mock import AsyncMock
+    from haiji.knowledge.base_kb import BaseKnowledgeBase
+
+    mock_kb = AsyncMock(spec=BaseKnowledgeBase)
+    mock_kb.search = AsyncMock(return_value=[])
+
+    @agent(mode="direct", code="rag_empty_msg", rag=mock_kb)
+    class RagEmptyMsgAgent(BaseAgent):
+        system_prompt = "提示词"
+
+    instance = RagEmptyMsgAgent()
+    await instance._prepare_execution(user_message="")
+    mock_kb.search.assert_not_called()

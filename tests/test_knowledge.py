@@ -682,3 +682,481 @@ class TestKnowledgeIntegration:
             assert "Title" in all_content or "paragraph" in all_content
         finally:
             os.unlink(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# KBResult 测试
+# ---------------------------------------------------------------------------
+
+
+class TestKBResult:
+    def test_default_values(self) -> None:
+        from haiji.knowledge.base_kb import KBResult
+        result = KBResult(content="测试")
+        assert result.content == "测试"
+        assert result.score == 0.0
+        assert result.doc_id == ""
+        assert result.chunk_id == ""
+        assert result.metadata == {}
+
+    def test_custom_values(self) -> None:
+        from haiji.knowledge.base_kb import KBResult
+        result = KBResult(
+            content="内容",
+            score=0.85,
+            doc_id="doc1",
+            chunk_id="doc1_0",
+            metadata={"source": "test"},
+        )
+        assert result.score == 0.85
+        assert result.doc_id == "doc1"
+        assert result.metadata == {"source": "test"}
+
+
+# ---------------------------------------------------------------------------
+# BaseKnowledgeBase 测试
+# ---------------------------------------------------------------------------
+
+
+class TestBaseKnowledgeBase:
+    @pytest.mark.asyncio
+    async def test_on_before_search_default_no_op(self) -> None:
+        """on_before_search 默认原样返回 query。"""
+        from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
+
+        class ConcreteKB(BaseKnowledgeBase):
+            async def search(self, query, top_k=5, score_threshold=0.0):
+                return []
+
+        kb = ConcreteKB()
+        result = await kb.on_before_search("hello world")
+        assert result == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_on_after_search_default_no_op(self) -> None:
+        """on_after_search 默认原样返回结果。"""
+        from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
+
+        class ConcreteKB(BaseKnowledgeBase):
+            async def search(self, query, top_k=5, score_threshold=0.0):
+                return []
+
+        kb = ConcreteKB()
+        input_results = [KBResult(content="内容", score=0.9)]
+        output = await kb.on_after_search(input_results)
+        assert output is input_results
+
+    @pytest.mark.asyncio
+    async def test_hooks_callable_from_subclass(self) -> None:
+        """子类可以覆盖钩子。"""
+        from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
+
+        class TransformKB(BaseKnowledgeBase):
+            async def search(self, query, top_k=5, score_threshold=0.0):
+                return [KBResult(content=query, score=1.0)]
+
+            async def on_before_search(self, query: str) -> str:
+                return query + "_modified"
+
+            async def on_after_search(self, results):
+                return [r for r in results if r.score > 0.5]
+
+        kb = TransformKB()
+        processed = await kb.on_before_search("hello")
+        assert processed == "hello_modified"
+
+        filtered = await kb.on_after_search([
+            KBResult(content="a", score=0.8),
+            KBResult(content="b", score=0.3),
+        ])
+        assert len(filtered) == 1
+        assert filtered[0].content == "a"
+
+    def test_cannot_instantiate_abstract(self) -> None:
+        """BaseKnowledgeBase 是抽象类，不能直接实例化。"""
+        from haiji.knowledge.base_kb import BaseKnowledgeBase
+        with pytest.raises(TypeError):
+            BaseKnowledgeBase()  # type: ignore
+
+
+# ---------------------------------------------------------------------------
+# KnowledgeBase 测试
+# ---------------------------------------------------------------------------
+
+
+class TestKnowledgeBase:
+    @pytest.mark.asyncio
+    async def test_load_text_returns_chunk_count(self) -> None:
+        """load_text 返回正确的 chunk 数量。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        count = await kb.load_text("Hello world test content.", doc_id="doc1")
+        assert count >= 1
+
+    @pytest.mark.asyncio
+    async def test_load_text_empty_returns_zero(self) -> None:
+        """load_text 空内容返回 0。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        count = await kb.load_text("   ", doc_id="empty_doc")
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_search_returns_kb_results(self) -> None:
+        """search 返回 KBResult 列表，含 content 和 score。使用相同文本确保高相似度。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+        from haiji.knowledge.base_kb import KBResult
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        text = "Python 是一种通用编程语言"
+        await kb.load_text(text, doc_id="doc1")
+
+        # 用相同文本查询，保证余弦相似度为 1.0（MockEmbedder 确定性）
+        results = await kb.search(text)
+        assert len(results) >= 1
+        assert isinstance(results[0], KBResult)
+        assert results[0].content != ""
+        assert isinstance(results[0].score, float)
+
+    @pytest.mark.asyncio
+    async def test_search_empty_query_returns_empty(self) -> None:
+        """search 空 query 返回空列表。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        await kb.load_text("内容", doc_id="doc1")
+        results = await kb.search("")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_whitespace_query_returns_empty(self) -> None:
+        """search 空白 query 返回空列表。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        results = await kb.search("   ")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_score_threshold_filters(self) -> None:
+        """score_threshold 过滤低分结果。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        await kb.load_text("完全不同的内容 xyz", doc_id="doc1")
+
+        # score_threshold=1.0 时只有完全相同才能通过（几乎不可能）
+        results = await kb.search("Python 编程", score_threshold=0.9999)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_results_sorted_by_score_desc(self) -> None:
+        """搜索结果按 score 降序排列。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        await kb.load_text("Python 编程语言数据科学", doc_id="doc1")
+        await kb.load_text("Java 企业级开发面向对象", doc_id="doc2")
+
+        results = await kb.search("Python 数据科学", top_k=5)
+        if len(results) >= 2:
+            scores = [r.score for r in results]
+            assert scores == sorted(scores, reverse=True)
+
+    @pytest.mark.asyncio
+    async def test_delete_doc_removes_from_search(self) -> None:
+        """delete_doc 后该文档不再出现在搜索结果中。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+        import asyncio
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        text = "Python 是一种通用编程语言"
+        await kb.load_text(text, doc_id="to_delete")
+
+        # 删除前能搜到（用相同文本，保证相似度为 1.0）
+        results_before = await kb.search(text)
+        assert len(results_before) >= 1
+
+        # 删除
+        kb.delete_doc("to_delete")
+
+        # 删除后搜不到（store 为空，search 应返回空列表）
+        results_after = await kb.search(text)
+        assert len(results_after) == 0
+
+    def test_info_returns_dict(self) -> None:
+        """info() 返回包含统计信息的字典。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder, store_id="test_info")
+        info = kb.info()
+        assert "store_id" in info
+        assert "doc_count" in info
+        assert "chunk_count" in info
+        assert info["doc_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_info_updates_after_load(self) -> None:
+        """load_text 后 info() 统计数量增加。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        await kb.load_text("文档内容", doc_id="doc1")
+        info = kb.info()
+        assert info["doc_count"] == 1
+        assert info["chunk_count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_load_file_txt(self) -> None:
+        """load_file 支持 .txt 文件。"""
+        import tempfile
+        import os
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+
+        with tempfile.NamedTemporaryFile(suffix=".txt", mode="w", delete=False, encoding="utf-8") as f:
+            f.write("Hello from file")
+            tmp_path = f.name
+
+        try:
+            count = await kb.load_file(tmp_path, doc_id="file_doc")
+            assert count >= 1
+        finally:
+            os.unlink(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_load_file_unsupported_type(self) -> None:
+        """load_file 不支持的文件类型抛 ValueError。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+
+        with pytest.raises(ValueError):
+            await kb.load_file("/some/file.pdf")
+
+    @pytest.mark.asyncio
+    async def test_load_file_not_found(self) -> None:
+        """load_file 文件不存在抛 FileNotFoundError。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+
+        with pytest.raises(FileNotFoundError):
+            await kb.load_file("/nonexistent/path/file.txt")
+
+    @pytest.mark.asyncio
+    async def test_hooks_called_during_search(self) -> None:
+        """search 内部调用 on_before_search 和 on_after_search。"""
+        import asyncio
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+        from haiji.knowledge.base_kb import KBResult
+
+        before_called: list[str] = []
+        after_called: list[list] = []
+
+        class HookedKB(KnowledgeBase):
+            async def on_before_search(self, query: str) -> str:
+                before_called.append(query)
+                return query
+
+            async def on_after_search(self, results: list[KBResult]) -> list[KBResult]:
+                after_called.append(results)
+                return results
+
+        embedder = MockEmbedder(dim=32)
+        kb = HookedKB(embedder)
+        text = "测试内容关键词"
+        await kb.load_text(text, doc_id="doc1")
+        # 用相同文本查询，保证 score >= 0，触发 after 钩子
+        await kb.search(text)
+
+        assert len(before_called) == 1
+        assert before_called[0] == text
+        assert len(after_called) == 1
+
+    @pytest.mark.asyncio
+    async def test_custom_store_injected(self) -> None:
+        """可以注入自定义 InMemoryKnowledgeStore。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        custom_store = InMemoryKnowledgeStore("custom_store")
+        kb = KnowledgeBase(embedder, store=custom_store)
+        info = kb.info()
+        assert info["store_id"] == "custom_store"
+
+    @pytest.mark.asyncio
+    async def test_kb_result_has_doc_id_and_chunk_id(self) -> None:
+        """搜索结果的 KBResult 包含 doc_id 和 chunk_id。"""
+        from haiji.knowledge.knowledge_base import KnowledgeBase
+
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        text = "测试文档内容关键词"
+        await kb.load_text(text, doc_id="my_doc")
+
+        # 用相同文本查询，保证能找到结果
+        results = await kb.search(text)
+        assert len(results) >= 1
+        assert results[0].doc_id != "" or results[0].chunk_id != ""
+
+
+# ---------------------------------------------------------------------------
+# QwenEmbedder 测试（Mock httpx）
+# ---------------------------------------------------------------------------
+
+
+class TestQwenEmbedder:
+    @pytest.mark.asyncio
+    async def test_embed_calls_api(self) -> None:
+        """embed() 应调用 MaaS API 并返回向量。"""
+        from haiji.knowledge.embedder import QwenEmbedder
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [{"index": 0, "embedding": [0.1] * 4096}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        embedder = QwenEmbedder(api_key="fake-key", base_url="https://test.example.com/v1")
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await embedder.embed("hello world")
+
+        assert len(result) == 4096
+        assert result[0] == 0.1
+        mock_client.post.assert_called_once()
+        call_kwargs = mock_client.post.call_args[1]
+        assert call_kwargs["json"]["model"] == "qwen3-embedding-8b"
+        assert call_kwargs["json"]["input"] == ["hello world"]
+        assert call_kwargs["json"]["encoding_format"] == "float"
+
+    @pytest.mark.asyncio
+    async def test_embed_batch_batches_correctly(self) -> None:
+        """embed_batch 按 batch_size 分批调用 API。"""
+        from haiji.knowledge.embedder import QwenEmbedder
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        call_count = 0
+
+        async def mock_post(url, headers, json):
+            nonlocal call_count
+            call_count += 1
+            items = [{"index": i, "embedding": [float(call_count)] * 4096}
+                     for i in range(len(json["input"]))]
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {"data": items}
+            mock_resp.raise_for_status = MagicMock()
+            return mock_resp
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(side_effect=mock_post)
+
+        # batch_size=3, 7 texts → 3 batches (3+3+1)
+        embedder = QwenEmbedder(
+            api_key="fake-key",
+            base_url="https://test.example.com/v1",
+            batch_size=3,
+        )
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            results = await embedder.embed_batch(["text"] * 7)
+
+        assert len(results) == 7
+        assert call_count == 3  # ceil(7/3) = 3 批
+
+    @pytest.mark.asyncio
+    async def test_embed_batch_empty_returns_empty(self) -> None:
+        """embed_batch([]) 返回空列表，不调用 API。"""
+        from haiji.knowledge.embedder import QwenEmbedder
+        from unittest.mock import patch, MagicMock
+
+        embedder = QwenEmbedder(api_key="fake-key", base_url="https://test.example.com/v1")
+        with patch("httpx.AsyncClient") as mock_cls:
+            result = await embedder.embed_batch([])
+        assert result == []
+        mock_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_embed_batch_result_order_by_index(self) -> None:
+        """embed_batch 按 index 排序返回结果（API 可能乱序）。"""
+        from haiji.knowledge.embedder import QwenEmbedder
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_response = MagicMock()
+        # 故意乱序返回
+        mock_response.json.return_value = {
+            "data": [
+                {"index": 1, "embedding": [0.2] * 4096},
+                {"index": 0, "embedding": [0.1] * 4096},
+            ]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        embedder = QwenEmbedder(api_key="fake-key", base_url="https://test.example.com/v1")
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            results = await embedder.embed_batch(["text1", "text2"])
+
+        assert results[0][0] == 0.1  # index=0 在前
+        assert results[1][0] == 0.2  # index=1 在后
+
+    def test_auth_header_sent(self) -> None:
+        """Bearer token 正确写入 Authorization header。"""
+        from haiji.knowledge.embedder import QwenEmbedder
+
+        embedder = QwenEmbedder(api_key="my-secret-key", base_url="https://test.example.com/v1")
+        assert embedder._api_key == "my-secret-key"
+        assert embedder._base_url == "https://test.example.com/v1"
+        assert embedder._model == "qwen3-embedding-8b"
+        assert embedder._batch_size == 32
+
+    def test_custom_model_and_batch_size(self) -> None:
+        """支持自定义 model 和 batch_size。"""
+        from haiji.knowledge.embedder import QwenEmbedder
+
+        embedder = QwenEmbedder(
+            api_key="key",
+            base_url="https://test.com/v1",
+            model="custom-model",
+            batch_size=16,
+        )
+        assert embedder._model == "custom-model"
+        assert embedder._batch_size == 16
+
+    def test_base_url_trailing_slash_stripped(self) -> None:
+        """base_url 末尾斜杠被移除。"""
+        from haiji.knowledge.embedder import QwenEmbedder
+
+        embedder = QwenEmbedder(api_key="key", base_url="https://test.com/v1/")
+        assert embedder._base_url == "https://test.com/v1"

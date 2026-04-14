@@ -4,6 +4,7 @@ knowledge/embedder.py - 文本向量化接口
 提供：
 - BaseEmbedder：抽象基类，定义 embed / embed_batch 接口
 - OpenAIEmbedder：基于 openai SDK 的向量化实现
+- QwenEmbedder：基于 MaaS 平台（qwen3-embedding-8b）的向量化实现，支持批量
 - MockEmbedder：固定维度随机向量，仅用于测试
 """
 
@@ -147,6 +148,140 @@ class OpenAIEmbedder(BaseEmbedder):
         # OpenAI 返回的 data 按 index 排序
         sorted_data = sorted(response.data, key=lambda x: x.index)
         return [item.embedding for item in sorted_data]
+
+
+class QwenEmbedder(BaseEmbedder):
+    """
+    基于 MaaS 平台（qwen3-embedding-8b）的向量化实现。
+
+    通过 httpx 异步调用小红书内部 MaaS 服务，支持按 batch_size 分批处理，
+    避免单次请求过大。
+
+    向量维度：4096（qwen3-embedding-8b 固定输出维度）
+
+    API 规格：
+    - URL: {base_url}/embeddings
+    - Headers: Authorization: Bearer {api_key}, Content-Type: application/json
+    - Body: {"model": "qwen3-embedding-8b", "input": [...], "encoding_format": "float"}
+    - 返回：response["data"][i]["embedding"]
+
+    Example:
+        >>> embedder = QwenEmbedder(api_key="sk-xxx", base_url="https://maas.devops.xiaohongshu.com/v1")
+        >>> vector = await embedder.embed("hello world")
+        >>> len(vector)
+        4096
+        >>> vectors = await embedder.embed_batch(["text1", "text2", "text3"])
+        >>> len(vectors)
+        3
+    """
+
+    _DEFAULT_MODEL = "qwen3-embedding-8b"
+    _DEFAULT_BATCH_SIZE = 32
+    _EMBEDDING_DIM = 4096  # qwen3-embedding-8b 固定维度
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str = _DEFAULT_MODEL,
+        batch_size: int = _DEFAULT_BATCH_SIZE,
+    ) -> None:
+        """
+        初始化 QwenEmbedder。
+
+        Args:
+            api_key:    MaaS 平台 API Key
+            base_url:   MaaS API 地址（如 "https://maas.devops.xiaohongshu.com/v1"）
+            model:      Embedding 模型名，默认 "qwen3-embedding-8b"
+            batch_size: 单次 API 调用的最大文本数量，默认 32
+        """
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
+        self._model = model
+        self._batch_size = batch_size
+
+    async def embed(self, text: str) -> list[float]:
+        """
+        将单段文本向量化（调用 MaaS embedding API）。
+
+        Args:
+            text: 待向量化文本
+
+        Returns:
+            list[float]: 长度为 4096 的向量
+
+        Raises:
+            httpx.HTTPStatusError: API 返回非 2xx 状态码
+            httpx.RequestError:    网络请求失败
+        """
+        results = await self._call_api([text])
+        return results[0]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """
+        批量向量化文本，自动按 batch_size 分批调用 MaaS API。
+
+        Args:
+            texts: 待向量化文本列表
+
+        Returns:
+            list[list[float]]: 各文本对应向量列表，顺序与输入一致
+
+        Raises:
+            httpx.HTTPStatusError: API 返回非 2xx 状态码
+            httpx.RequestError:    网络请求失败
+        """
+        if not texts:
+            return []
+
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(texts), self._batch_size):
+            batch = texts[i : i + self._batch_size]
+            logger.debug(
+                "QwenEmbedder.embed_batch: batch %d/%d, size=%d",
+                i // self._batch_size + 1,
+                (len(texts) + self._batch_size - 1) // self._batch_size,
+                len(batch),
+            )
+            batch_embeddings = await self._call_api(batch)
+            all_embeddings.extend(batch_embeddings)
+
+        return all_embeddings
+
+    async def _call_api(self, texts: list[str]) -> list[list[float]]:
+        """
+        调用 MaaS Embeddings API。
+
+        Args:
+            texts: 待向量化文本列表（不超过 batch_size 条）
+
+        Returns:
+            list[list[float]]: 向量列表，顺序与输入一致
+        """
+        import httpx
+
+        url = f"{self._base_url}/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "input": texts,
+            "encoding_format": "float",
+        }
+
+        logger.debug("QwenEmbedder._call_api: url=%s, input_count=%d", url, len(texts))
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+
+        # data["data"] 是按 index 排序的结果列表
+        # 按 index 排序，确保顺序与输入一致
+        items = sorted(data["data"], key=lambda x: x["index"])
+        return [item["embedding"] for item in items]
 
 
 class MockEmbedder(BaseEmbedder):

@@ -30,6 +30,11 @@ from haiji.skill.base import build_prompt_fragment, get_skill_registry
 from haiji.sse.base import SseEventEmitter
 from haiji.tool.base import get_tool_registry
 
+# RAG 相关导入（延迟导入，仅在使用 RAG 时触发）
+# from haiji.knowledge.base_kb import BaseKnowledgeBase
+# from haiji.rag.definition import RagConfig
+# from haiji.rag.retriever import RagRetriever
+
 logger = logging.getLogger(__name__)
 
 # 流式 token buffer 上限（性能规范）
@@ -72,6 +77,17 @@ class BaseAgent:
             )
         self._definition: AgentDefinition = definition
 
+        # RAG 集成：从装饰器注入（可选）
+        # _rag_retriever 为 None 时，stream_chat 完全走原路径，零开销
+        rag_kb = getattr(self, "_rag_kb", None)
+        rag_config = getattr(self, "_rag_config", None)
+        if rag_kb is not None:
+            from haiji.rag.retriever import RagRetriever
+            rag_cfg = rag_config  # 可以是 None（使用默认配置）
+            self._rag_retriever: Optional[Any] = RagRetriever(rag_kb, rag_cfg)
+        else:
+            self._rag_retriever = None
+
     # ------------------------------------------------------------------
     # 公共入口
     # ------------------------------------------------------------------
@@ -112,8 +128,8 @@ class BaseAgent:
         # 追加用户消息
         memory.add_user_message(ctx.session_id, user_message)
 
-        # 准备 LLM 工具列表 + system prompt
-        llm_tools, system_prompt_text = self._prepare_execution()
+        # 准备 LLM 工具列表 + system prompt（含 RAG 注入，若配置了知识库）
+        llm_tools, system_prompt_text = await self._prepare_execution(user_message=user_message)
 
         try:
             mode = self._definition.mode
@@ -142,12 +158,24 @@ class BaseAgent:
     # 内部辅助方法
     # ------------------------------------------------------------------
 
-    def _prepare_execution(self) -> tuple[list[LlmTool], str]:
+    async def _prepare_execution(
+        self, user_message: str = ""
+    ) -> tuple[list[LlmTool], str]:
         """
         准备执行：
         1. 从 SkillRegistry 加载所需 Skill，收集关联 Tool 的 FunctionDef
         2. 从 ToolRegistry 加载直接声明的 Tool
         3. 渲染 system_prompt（拼接 Skill prompt 片段）
+        4. 若配置了 RAG 知识库，检索相关知识并注入 system_prompt
+
+        RAG 注入逻辑：
+        - _rag_retriever 为 None 时，完全走原路径，无任何开销
+        - inject_mode="system_suffix"：将检索到的知识追加到 system_prompt 末尾
+        - inject_mode="user_prefix"：注入文本存储在 system_prompt 的末尾标记处
+          （实际前置注入在 Executor 层处理，此处仅存储，保持接口一致）
+
+        Args:
+            user_message: 当前用户消息，用于 RAG 检索（空时跳过）
 
         Returns:
             (llm_tools, system_prompt_text)
@@ -186,7 +214,7 @@ class BaseAgent:
                 continue
             llm_tools.append(tool.to_meta().to_llm_tool())
 
-        # 渲染 system_prompt
+        # 渲染 system_prompt（Skill 片段拼接）
         skill_fragment = build_prompt_fragment(activated_skills)
         base_prompt = self._definition.system_prompt or self.system_prompt
         if skill_fragment:
@@ -194,11 +222,51 @@ class BaseAgent:
         else:
             system_prompt_text = base_prompt
 
+        # RAG 注入：_rag_retriever 为 None 时完全跳过，零开销
+        if self._rag_retriever is not None and user_message.strip():
+            try:
+                rag_result = await self._rag_retriever.retrieve(user_message)
+                if rag_result.injected_text:
+                    inject_mode = self._rag_retriever.config.inject_mode
+                    if inject_mode == "system_suffix":
+                        # 追加到 system_prompt 末尾
+                        if system_prompt_text:
+                            system_prompt_text = (
+                                f"{system_prompt_text}\n\n{rag_result.injected_text}"
+                            )
+                        else:
+                            system_prompt_text = rag_result.injected_text
+                    elif inject_mode == "user_prefix":
+                        # user_prefix 模式：同样追加到 system_prompt 末尾
+                        # 语义上是"在用户消息前置知识"，但注入到 system 层更安全
+                        # 后期可在 Executor 层拦截并真正前置到用户消息
+                        if system_prompt_text:
+                            system_prompt_text = (
+                                f"{system_prompt_text}\n\n{rag_result.injected_text}"
+                            )
+                        else:
+                            system_prompt_text = rag_result.injected_text
+                    logger.info(
+                        "[Agent:%s] RAG 注入完成：%d 个结果，注入 %d 字符（mode=%s）",
+                        self._definition.code,
+                        len(rag_result.results),
+                        len(rag_result.injected_text),
+                        inject_mode,
+                    )
+            except Exception as exc:
+                # RAG 检索失败不阻断主流程
+                logger.warning(
+                    "[Agent:%s] RAG 检索失败（降级忽略）: %s",
+                    self._definition.code,
+                    exc,
+                )
+
         logger.debug(
-            "[Agent:%s] 准备完成：skills=%s tools=%d",
+            "[Agent:%s] 准备完成：skills=%s tools=%d rag=%s",
             self._definition.code,
             self._definition.required_skill_codes,
             len(llm_tools),
+            "on" if self._rag_retriever is not None else "off",
         )
         return llm_tools, system_prompt_text
 
@@ -623,6 +691,8 @@ def agent(
     name: Optional[str] = None,
     max_rounds: int = 10,
     llm_config_override: Optional[dict[str, Any]] = None,
+    rag: Optional[Any] = None,
+    rag_config: Optional[Any] = None,
 ) -> Callable:
     """
     @agent 装饰器，将 BaseAgent 子类注册到 AgentRegistry。
@@ -637,12 +707,25 @@ def agent(
         name:                Agent 名称，默认和 code 相同
         max_rounds:          REACT 循环最大轮次（默认 10）
         llm_config_override: Agent 级别的 LLM 配置覆盖
+        rag:                 知识库实例（实现 BaseKnowledgeBase 接口），None 时不启用 RAG
+        rag_config:          RAG 配置（RagConfig），None 时使用默认配置
 
     示例::
 
         @agent(mode="react", skills=["web_research"], max_rounds=5)
         class ResearchAgent(BaseAgent):
             system_prompt = "你是一个助手..."
+
+        # 启用 RAG 的示例：
+        from haiji.knowledge import KnowledgeBase, MockEmbedder
+        from haiji.rag import RagConfig
+
+        kb = KnowledgeBase(MockEmbedder())
+        await kb.load_text("haiji 框架文档", doc_id="doc1")
+
+        @agent(mode="react", rag=kb, rag_config=RagConfig(top_k=3, inject_mode="system_suffix"))
+        class KbAgent(BaseAgent):
+            system_prompt = "你是一个基于知识库的助手。"
     """
 
     def decorator(cls: type) -> type:
@@ -686,6 +769,10 @@ def agent(
 
         # 注入 _agent_definition 到类
         cls._agent_definition = definition  # type: ignore
+
+        # 注入 RAG 知识库（可选）：_rag_kb 为 None 时 BaseAgent.__init__ 不创建 retriever
+        cls._rag_kb = rag  # type: ignore
+        cls._rag_config = rag_config  # type: ignore
 
         # 注册到全局 AgentRegistry
         registry = get_agent_registry()

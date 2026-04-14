@@ -3,7 +3,7 @@ rag/definition.py - RAG（检索增强生成）数据结构定义
 
 提供：
 - RagConfig：RAG 检索配置（top_k、score_threshold、inject_mode、max_inject_chars）
-- RagResult：检索结果（匹配切片 + 格式化后的注入文本）
+- RagResult：检索结果（匹配结果列表 + 格式化后的注入文本）
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from haiji.knowledge.definition import DocumentChunk
+from haiji.knowledge.base_kb import KBResult
 
 
 class RagConfig(BaseModel):
@@ -38,12 +38,13 @@ class RagResult(BaseModel):
     RAG 检索结果。
 
     Attributes:
-        chunks: 满足 score_threshold 的检索结果切片列表（按相似度降序）
+        results: 满足 score_threshold 的检索结果列表（按相似度降序），
+            使用统一的 KBResult 格式，兼容内外部知识库
         injected_text: 已格式化的注入文本（可直接插入 prompt），
             若无结果则为空字符串
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    chunks: list[DocumentChunk] = Field(default_factory=list)
+    results: list[KBResult] = Field(default_factory=list)
     injected_text: str = ""

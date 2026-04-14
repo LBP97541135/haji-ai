@@ -3,13 +3,13 @@ tests/test_rag.py - RAG 模块测试
 
 覆盖：
 - RagConfig 默认值与校验
-- RagResult 数据结构
-- RagRetriever 正常检索并格式化
+- RagResult 数据结构（results 字段，KBResult 格式）
+- RagRetriever 正常检索并格式化（使用 BaseKnowledgeBase）
 - RagRetriever score_threshold 过滤
 - RagRetriever 超长内容截断
 - RagRetriever 空结果处理
 - RagRetriever 空 query 处理
-- embedder AsyncMock
+- KnowledgeBase 作为 RagRetriever 后端的端到端测试
 """
 
 from __future__ import annotations
@@ -22,9 +22,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from haiji.knowledge.base_kb import BaseKnowledgeBase, KBResult
 from haiji.knowledge.definition import ChunkConfig, DocumentChunk, KnowledgeDocument
 from haiji.knowledge.embedder import BaseEmbedder, MockEmbedder
-from haiji.knowledge.store import InMemoryKnowledgeStore
+from haiji.knowledge.knowledge_base import KnowledgeBase
+from haiji.knowledge.store import InMemoryKnowledgeStore, _cosine_similarity
 from haiji.rag.definition import RagConfig, RagResult
 from haiji.rag.retriever import RagRetriever, _INJECT_HEADER, _INJECT_SEPARATOR
 
@@ -44,18 +46,6 @@ def make_chunk(chunk_id: str, content: str, embedding: Optional[list[float]] = N
     )
 
 
-def make_store_with_chunks(chunks: list[DocumentChunk], store_id: str = "test") -> InMemoryKnowledgeStore:
-    """创建并填充好的知识库。"""
-    store = InMemoryKnowledgeStore(store_id)
-    doc = KnowledgeDocument(
-        doc_id="doc-1",
-        source="test",
-        content="combined",
-    )
-    store.add_document(doc, chunks)
-    return store
-
-
 def unit_vector(seed: int, dim: int = 8) -> list[float]:
     """生成确定性单位向量（用于相似度可控的测试）。"""
     rng = random.Random(seed)
@@ -64,6 +54,70 @@ def unit_vector(seed: int, dim: int = 8) -> list[float]:
     if norm == 0.0:
         return [1.0] + [0.0] * (dim - 1)
     return [x / norm for x in raw]
+
+
+class MockKnowledgeBase(BaseKnowledgeBase):
+    """
+    测试用知识库：包装 InMemoryKnowledgeStore + BaseEmbedder，
+    实现 BaseKnowledgeBase 接口，用于测试 RagRetriever 行为。
+    """
+
+    def __init__(
+        self,
+        store: InMemoryKnowledgeStore,
+        embedder: BaseEmbedder,
+        score_threshold_override: Optional[float] = None,
+    ) -> None:
+        self._store = store
+        self._embedder = embedder
+        self._score_threshold_override = score_threshold_override
+
+    async def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        score_threshold: float = 0.0,
+    ) -> list[KBResult]:
+        """向量检索实现（测试用）。"""
+        if not query.strip():
+            return []
+        query_embedding = await self._embedder.embed(query)
+        candidates = self._store.search(query_embedding, top_k=top_k)
+        if not candidates:
+            return []
+        threshold = self._score_threshold_override if self._score_threshold_override is not None else score_threshold
+        results: list[KBResult] = []
+        for chunk in candidates:
+            if chunk.embedding is None:
+                continue
+            score = _cosine_similarity(query_embedding, chunk.embedding)
+            if score >= threshold:
+                doc_id = "_".join(chunk.chunk_id.split("_")[:-1]) if "_" in chunk.chunk_id else chunk.chunk_id
+                results.append(KBResult(
+                    content=chunk.content,
+                    score=score,
+                    doc_id=doc_id,
+                    chunk_id=chunk.chunk_id,
+                    metadata=dict(chunk.metadata),
+                ))
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
+
+def make_kb_with_chunks(
+    chunks: list[DocumentChunk],
+    embedder: BaseEmbedder,
+    store_id: str = "test",
+) -> MockKnowledgeBase:
+    """创建并填充好的 MockKnowledgeBase。"""
+    store = InMemoryKnowledgeStore(store_id)
+    doc = KnowledgeDocument(
+        doc_id="doc-1",
+        source="test",
+        content="combined",
+    )
+    store.add_document(doc, chunks)
+    return MockKnowledgeBase(store, embedder)
 
 
 # ---------------------------------------------------------------------------
@@ -125,15 +179,23 @@ class TestRagResult:
     def test_default_empty(self):
         """RagResult 默认为空。"""
         result = RagResult()
-        assert result.chunks == []
+        assert result.results == []
         assert result.injected_text == ""
 
     def test_with_data(self):
-        """RagResult 可以存储切片和注入文本。"""
-        chunk = make_chunk("c1", "hello world")
-        result = RagResult(chunks=[chunk], injected_text="以下是相关知识：\n\nhello world")
-        assert len(result.chunks) == 1
+        """RagResult 可以存储 KBResult 列表和注入文本。"""
+        kb_result = KBResult(content="hello world", score=0.9)
+        result = RagResult(results=[kb_result], injected_text="以下是相关知识：\n\nhello world")
+        assert len(result.results) == 1
         assert "hello" in result.injected_text
+
+    def test_results_field_is_kb_result_list(self):
+        """RagResult.results 是 KBResult 列表。"""
+        kb_result = KBResult(content="内容", score=0.8, doc_id="doc1", chunk_id="doc1_0")
+        result = RagResult(results=[kb_result])
+        assert result.results[0].content == "内容"
+        assert result.results[0].score == 0.8
+        assert result.results[0].doc_id == "doc1"
 
 
 # ---------------------------------------------------------------------------
@@ -152,15 +214,15 @@ class TestRagRetrieverNormalSearch:
 
         chunk1 = make_chunk("c1", "Python Multi-Agent 框架", embedding=v1)
         chunk2 = make_chunk("c2", "前端 React 组件", embedding=v2)
-        store = make_store_with_chunks([chunk1, chunk2])
 
         embedder = AsyncMock(spec=BaseEmbedder)
         embedder.embed = AsyncMock(return_value=v1)  # query 向量与 chunk1 完全一致
 
-        retriever = RagRetriever(store, embedder, RagConfig(top_k=2))
+        kb = make_kb_with_chunks([chunk1, chunk2], embedder)
+        retriever = RagRetriever(kb, RagConfig(top_k=2))
         result = await retriever.retrieve("什么是 haiji？")
 
-        assert len(result.chunks) >= 1
+        assert len(result.results) >= 1
         assert result.injected_text.startswith("以下是相关知识：")
         assert "Python Multi-Agent 框架" in result.injected_text
 
@@ -170,12 +232,12 @@ class TestRagRetrieverNormalSearch:
         dim = 4
         v = unit_vector(7, dim)
         chunk = make_chunk("c1", "测试内容", embedding=v)
-        store = make_store_with_chunks([chunk])
 
         embedder = AsyncMock(spec=BaseEmbedder)
         embedder.embed = AsyncMock(return_value=v)
 
-        retriever = RagRetriever(store, embedder)
+        kb = make_kb_with_chunks([chunk], embedder)
+        retriever = RagRetriever(kb)
         result = await retriever.retrieve("测试")
 
         assert result.injected_text.startswith(_INJECT_HEADER)
@@ -200,26 +262,24 @@ class TestRagRetrieverNormalSearch:
         embedder = AsyncMock(spec=BaseEmbedder)
         embedder.embed = AsyncMock(return_value=v)
 
-        retriever = RagRetriever(store, embedder, RagConfig(top_k=5))
+        kb = MockKnowledgeBase(store, embedder)
+        retriever = RagRetriever(kb, RagConfig(top_k=5))
         result = await retriever.retrieve("内容")
 
         assert _INJECT_SEPARATOR in result.injected_text
 
     @pytest.mark.asyncio
-    async def test_embedder_called_with_query(self):
-        """检索时 embedder.embed 被以 query 调用。"""
-        dim = 4
-        v = unit_vector(3, dim)
-        chunk = make_chunk("c1", "content", embedding=v)
-        store = make_store_with_chunks([chunk])
+    async def test_kb_search_called_with_query(self):
+        """检索时 kb.search 被以正确参数调用。"""
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[
+            KBResult(content="测试内容", score=0.9)
+        ])
 
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=v)
-
-        retriever = RagRetriever(store, embedder)
+        retriever = RagRetriever(kb, RagConfig(top_k=3))
         await retriever.retrieve("my query")
 
-        embedder.embed.assert_called_once_with("my query")
+        kb.search.assert_called_once_with("my query", top_k=3, score_threshold=0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -237,16 +297,20 @@ class TestRagRetrieverScoreFilter:
         v_opposite = [-x for x in v_query]
 
         chunk = make_chunk("c1", "不相关内容", embedding=v_opposite)
-        store = make_store_with_chunks([chunk])
 
         embedder = AsyncMock(spec=BaseEmbedder)
         embedder.embed = AsyncMock(return_value=v_query)
 
-        # 设置很高的阈值，相反向量的相似度为 -1，必然被过滤
-        retriever = RagRetriever(store, embedder, RagConfig(score_threshold=0.5))
+        # MockKnowledgeBase 使用显式的 score_threshold_override=0.5 过滤
+        store = InMemoryKnowledgeStore("s")
+        doc = KnowledgeDocument(doc_id="d1", source="t", content="test")
+        store.add_document(doc, [chunk])
+        kb = MockKnowledgeBase(store, embedder, score_threshold_override=0.5)
+
+        retriever = RagRetriever(kb, RagConfig(score_threshold=0.5))
         result = await retriever.retrieve("查询")
 
-        assert result.chunks == []
+        assert result.results == []
         assert result.injected_text == ""
 
     @pytest.mark.asyncio
@@ -255,15 +319,15 @@ class TestRagRetrieverScoreFilter:
         dim = 8
         v = unit_vector(42, dim)
         chunk = make_chunk("c1", "任意内容", embedding=v)
-        store = make_store_with_chunks([chunk])
 
         embedder = AsyncMock(spec=BaseEmbedder)
         embedder.embed = AsyncMock(return_value=v)
 
-        retriever = RagRetriever(store, embedder, RagConfig(score_threshold=0.0))
+        kb = make_kb_with_chunks([chunk], embedder)
+        retriever = RagRetriever(kb, RagConfig(score_threshold=0.0))
         result = await retriever.retrieve("查询")
 
-        assert len(result.chunks) == 1
+        assert len(result.results) == 1
 
     @pytest.mark.asyncio
     async def test_score_threshold_partial_filter(self):
@@ -282,11 +346,12 @@ class TestRagRetrieverScoreFilter:
         embedder = AsyncMock(spec=BaseEmbedder)
         embedder.embed = AsyncMock(return_value=v_query)
 
-        retriever = RagRetriever(store, embedder, RagConfig(top_k=5, score_threshold=0.5))
+        kb = MockKnowledgeBase(store, embedder, score_threshold_override=0.5)
+        retriever = RagRetriever(kb, RagConfig(top_k=5, score_threshold=0.5))
         result = await retriever.retrieve("查询")
 
-        assert len(result.chunks) == 1
-        assert result.chunks[0].content == "高相关内容"
+        assert len(result.results) == 1
+        assert result.results[0].content == "高相关内容"
 
 
 # ---------------------------------------------------------------------------
@@ -298,16 +363,14 @@ class TestRagRetrieverTruncation:
     @pytest.mark.asyncio
     async def test_long_content_truncated_to_max_inject_chars(self):
         """注入文本超出 max_inject_chars 时，结果不超过限制。"""
-        dim = 4
-        v = unit_vector(5, dim)
-        long_content = "X" * 3000  # 很长的内容
-        chunk = make_chunk("c1", long_content, embedding=v)
-        store = make_store_with_chunks([chunk])
+        long_content = "X" * 3000
 
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=v)
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[
+            KBResult(content=long_content, score=0.9)
+        ])
 
-        retriever = RagRetriever(store, embedder, RagConfig(max_inject_chars=500))
+        retriever = RagRetriever(kb, RagConfig(max_inject_chars=500))
         result = await retriever.retrieve("查询")
 
         assert len(result.injected_text) <= 500
@@ -315,16 +378,14 @@ class TestRagRetrieverTruncation:
     @pytest.mark.asyncio
     async def test_truncated_text_ends_with_ellipsis(self):
         """截断后的文本以 '...' 结尾。"""
-        dim = 4
-        v = unit_vector(5, dim)
         long_content = "A" * 3000
-        chunk = make_chunk("c1", long_content, embedding=v)
-        store = make_store_with_chunks([chunk])
 
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=v)
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[
+            KBResult(content=long_content, score=0.9)
+        ])
 
-        retriever = RagRetriever(store, embedder, RagConfig(max_inject_chars=200))
+        retriever = RagRetriever(kb, RagConfig(max_inject_chars=200))
         result = await retriever.retrieve("查询")
 
         assert result.injected_text.endswith("...")
@@ -332,16 +393,14 @@ class TestRagRetrieverTruncation:
     @pytest.mark.asyncio
     async def test_short_content_not_truncated(self):
         """短内容不被截断，不含多余 '...'。"""
-        dim = 4
-        v = unit_vector(5, dim)
         short_content = "短内容"
-        chunk = make_chunk("c1", short_content, embedding=v)
-        store = make_store_with_chunks([chunk])
 
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=v)
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[
+            KBResult(content=short_content, score=0.9)
+        ])
 
-        retriever = RagRetriever(store, embedder, RagConfig(max_inject_chars=2000))
+        retriever = RagRetriever(kb, RagConfig(max_inject_chars=2000))
         result = await retriever.retrieve("查询")
 
         assert not result.injected_text.endswith("...")
@@ -350,21 +409,15 @@ class TestRagRetrieverTruncation:
     @pytest.mark.asyncio
     async def test_multiple_chunks_truncation_stops_early(self):
         """多切片时超长立即停止添加后续切片。"""
-        dim = 4
-        v = unit_vector(1, dim)
+        kb_results = [
+            KBResult(content=f"内容{i}" + "Y" * 200, score=0.9 - i * 0.01)
+            for i in range(10)
+        ]
 
-        store = InMemoryKnowledgeStore("s")
-        chunks = []
-        for i in range(10):
-            c = make_chunk(f"c{i}", f"内容{i}" + "Y" * 200, embedding=v)
-            chunks.append(c)
-            doc = KnowledgeDocument(doc_id=f"d{i}", source="t", content=f"内容{i}")
-            store.add_document(doc, [c])
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=kb_results)
 
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=v)
-
-        retriever = RagRetriever(store, embedder, RagConfig(top_k=10, max_inject_chars=300))
+        retriever = RagRetriever(kb, RagConfig(top_k=10, max_inject_chars=300))
         result = await retriever.retrieve("查询")
 
         assert len(result.injected_text) <= 300
@@ -377,95 +430,183 @@ class TestRagRetrieverTruncation:
 
 class TestRagRetrieverEdgeCases:
     @pytest.mark.asyncio
-    async def test_empty_store_returns_empty_result(self):
-        """空知识库返回空结果。"""
-        store = InMemoryKnowledgeStore("empty")
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=[0.1, 0.2, 0.3])
+    async def test_empty_kb_returns_empty_result(self):
+        """知识库无结果时返回空结果。"""
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[])
 
-        retriever = RagRetriever(store, embedder)
+        retriever = RagRetriever(kb)
         result = await retriever.retrieve("查询")
 
-        assert result.chunks == []
+        assert result.results == []
         assert result.injected_text == ""
 
     @pytest.mark.asyncio
     async def test_empty_query_returns_empty_result(self):
-        """空 query 不调用 embedder，返回空结果。"""
-        dim = 4
-        v = unit_vector(1, dim)
-        chunk = make_chunk("c1", "内容", embedding=v)
-        store = make_store_with_chunks([chunk])
+        """空 query 不调用 kb.search，返回空结果。"""
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[KBResult(content="内容", score=0.9)])
 
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=v)
-
-        retriever = RagRetriever(store, embedder)
+        retriever = RagRetriever(kb)
         result = await retriever.retrieve("")
 
-        assert result.chunks == []
+        assert result.results == []
         assert result.injected_text == ""
-        embedder.embed.assert_not_called()
+        kb.search.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_whitespace_only_query_returns_empty_result(self):
         """纯空白 query 同样返回空结果。"""
-        store = InMemoryKnowledgeStore("s")
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=[0.1])
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[])
 
-        retriever = RagRetriever(store, embedder)
+        retriever = RagRetriever(kb)
         result = await retriever.retrieve("   \n\t  ")
 
         assert result.injected_text == ""
-        embedder.embed.assert_not_called()
+        kb.search.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_chunks_without_embedding_skipped(self):
-        """没有 embedding 的切片被跳过，不参与检索。"""
-        store = InMemoryKnowledgeStore("s")
-        chunk_no_emb = make_chunk("c1", "没有向量", embedding=None)
-        doc = KnowledgeDocument(doc_id="d1", source="t", content="测试")
-        store.add_document(doc, [chunk_no_emb])
+    async def test_kb_search_called_with_correct_args(self):
+        """retrieve 将 config 参数正确传给 kb.search。"""
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[])
 
-        embedder = AsyncMock(spec=BaseEmbedder)
-        embedder.embed = AsyncMock(return_value=[0.1, 0.2])
+        config = RagConfig(top_k=7, score_threshold=0.3)
+        retriever = RagRetriever(kb, config)
+        await retriever.retrieve("查询文本")
 
-        retriever = RagRetriever(store, embedder)
-        result = await retriever.retrieve("查询")
-
-        assert result.chunks == []
+        kb.search.assert_called_once_with("查询文本", top_k=7, score_threshold=0.3)
 
 
 # ---------------------------------------------------------------------------
-# 使用 MockEmbedder 的端到端测试
+# KBResult 测试
 # ---------------------------------------------------------------------------
 
 
-class TestRagRetrieverWithMockEmbedder:
+class TestKBResult:
+    def test_default_values(self):
+        """KBResult 默认值正确。"""
+        result = KBResult(content="测试内容")
+        assert result.content == "测试内容"
+        assert result.score == 0.0
+        assert result.doc_id == ""
+        assert result.chunk_id == ""
+        assert result.metadata == {}
+
+    def test_custom_values(self):
+        """KBResult 可以自定义所有字段。"""
+        result = KBResult(
+            content="内容",
+            score=0.85,
+            doc_id="doc1",
+            chunk_id="doc1_0",
+            metadata={"source": "test"},
+        )
+        assert result.score == 0.85
+        assert result.doc_id == "doc1"
+        assert result.chunk_id == "doc1_0"
+        assert result.metadata == {"source": "test"}
+
+
+# ---------------------------------------------------------------------------
+# BaseKnowledgeBase 钩子测试
+# ---------------------------------------------------------------------------
+
+
+class TestBaseKnowledgeBaseHooks:
+    @pytest.mark.asyncio
+    async def test_on_before_search_default_returns_query(self):
+        """on_before_search 默认返回原始 query。"""
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        # 调用实际基类方法
+        from haiji.knowledge.base_kb import BaseKnowledgeBase as RealBase
+
+        class ConcreteKB(RealBase):
+            async def search(self, query, top_k=5, score_threshold=0.0):
+                return []
+
+        concrete = ConcreteKB()
+        result = await concrete.on_before_search("hello world")
+        assert result == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_on_after_search_default_returns_results(self):
+        """on_after_search 默认返回原始结果。"""
+        from haiji.knowledge.base_kb import BaseKnowledgeBase as RealBase
+
+        class ConcreteKB(RealBase):
+            async def search(self, query, top_k=5, score_threshold=0.0):
+                return []
+
+        concrete = ConcreteKB()
+        input_results = [KBResult(content="内容", score=0.9)]
+        output = await concrete.on_after_search(input_results)
+        assert output == input_results
+
+    @pytest.mark.asyncio
+    async def test_hooks_can_be_overridden(self):
+        """子类可以覆盖钩子实现自定义逻辑。"""
+        from haiji.knowledge.base_kb import BaseKnowledgeBase as RealBase
+
+        class RewriteKB(RealBase):
+            async def search(self, query, top_k=5, score_threshold=0.0):
+                return [KBResult(content=query, score=1.0)]
+
+            async def on_before_search(self, query: str) -> str:
+                return query.upper()  # 转大写
+
+            async def on_after_search(self, results):
+                return []  # 过滤所有结果
+
+        kb = RewriteKB()
+        results = await kb.search("test")
+        assert results == [KBResult(content="test", score=1.0)]
+        assert await kb.on_before_search("hello") == "HELLO"
+        assert await kb.on_after_search([KBResult(content="x", score=0.5)]) == []
+
+
+# ---------------------------------------------------------------------------
+# KnowledgeBase 端到端测试（使用 MockEmbedder）
+# ---------------------------------------------------------------------------
+
+
+class TestKnowledgeBaseWithRagRetriever:
     @pytest.mark.asyncio
     async def test_end_to_end_with_mock_embedder(self):
-        """使用 MockEmbedder 的端到端测试（相同文本检索自身）。"""
+        """KnowledgeBase + RagRetriever 端到端测试（相同文本检索自身）。"""
         embedder = MockEmbedder(dim=64)
-        store = InMemoryKnowledgeStore("e2e")
+        kb = KnowledgeBase(embedder)
 
         text = "haiji 是一个 Python Multi-Agent 框架"
-        chunk = make_chunk("c1", text, embedding=await embedder.embed(text))
-        doc = KnowledgeDocument(doc_id="d1", source="test", content=text)
-        store.add_document(doc, [chunk])
+        await kb.load_text(text, doc_id="d1")
 
-        retriever = RagRetriever(store, embedder, RagConfig(top_k=1))
+        retriever = RagRetriever(kb, RagConfig(top_k=1))
         result = await retriever.retrieve(text)  # 相同文本，相似度为 1
 
-        assert len(result.chunks) == 1
+        assert len(result.results) == 1
         assert text in result.injected_text
 
     @pytest.mark.asyncio
     async def test_rag_config_inject_mode_stored(self):
         """inject_mode 字段被正确存储（供 Agent 层使用）。"""
-        store = InMemoryKnowledgeStore("s")
-        embedder = MockEmbedder(dim=16)
+        kb = AsyncMock(spec=BaseKnowledgeBase)
+        kb.search = AsyncMock(return_value=[])
         config = RagConfig(inject_mode="user_prefix")
-        retriever = RagRetriever(store, embedder, config)
+        retriever = RagRetriever(kb, config)
 
         assert retriever.config.inject_mode == "user_prefix"
+
+    @pytest.mark.asyncio
+    async def test_results_have_score_field(self):
+        """检索结果的每个 KBResult 都有 score 字段。"""
+        embedder = MockEmbedder(dim=32)
+        kb = KnowledgeBase(embedder)
+        await kb.load_text("测试文本内容", doc_id="doc1")
+
+        retriever = RagRetriever(kb, RagConfig(top_k=3))
+        result = await retriever.retrieve("测试")
+
+        for r in result.results:
+            assert isinstance(r.score, float)
+            assert 0.0 <= r.score <= 1.0 + 1e-9  # 余弦相似度范围
