@@ -1,0 +1,13 @@
+{
+  "session_id": "private_haji_assistant_user_001",
+  "messages": [
+    {
+      "role": "user",
+      "content": "你好，我叫祎晗"
+    },
+    {
+      "role": "assistant",
+      "content": "<think>用户用中文打招呼，告诉我他叫祎晗。我应该友好地回应，简洁地欢迎他，控制在200字以内，用中文回复。\n</think>\n\n你好，祎晗！很高兴认识你 😊\n\n有什么我可以帮你的吗？无论是问题解答、创意灵感，还是日常聊天，随时找我～"
+    }
+  ]
+}

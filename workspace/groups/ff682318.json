@@ -1,0 +1,22 @@
+{
+  "group_id": "ff682318",
+  "name": "1111",
+  "description": "",
+  "members": [
+    {
+      "agent_code": "haji_assistant",
+      "role": "owner",
+      "muted": false
+    },
+    {
+      "agent_code": "病娇小爱_nent",
+      "role": "member",
+      "muted": false
+    },
+    {
+      "agent_code": "傲娇小甜心_g83z",
+      "role": "member",
+      "muted": false
+    }
+  ]
+}

@@ -10,7 +10,7 @@ from pathlib import Path
 from haiji.config import get_config
 from haiji.llm.impl.openai import OpenAILlmClient
 from haiji.agent.registry import get_agent_registry
-from haiji.memory.base import SessionMemoryManager
+from haiji.memory.persistent import PersistentSessionMemoryManager
 from haiji.memory.user_memory import UserMemoryManager, init_user_memory_manager
 from haiji.designer import Designer
 
@@ -27,12 +27,17 @@ def get_designer() -> Designer:
     return Designer(get_llm_client())
 
 
-# 全局 memory（内存版，重启丢失）
-_memory = SessionMemoryManager()
+_sessions_persist_dir = Path(__file__).parent.parent / "workspace" / "sessions"
+
+# 全局 memory（持久化版，重启自动恢复）
+_memory: PersistentSessionMemoryManager | None = None
 
 
-def get_memory() -> SessionMemoryManager:
-    """获取全局 SessionMemoryManager"""
+def get_memory() -> PersistentSessionMemoryManager:
+    """获取全局 SessionMemoryManager（持久化版）"""
+    global _memory
+    if _memory is None:
+        _memory = PersistentSessionMemoryManager(_sessions_persist_dir)
     return _memory
 
 
