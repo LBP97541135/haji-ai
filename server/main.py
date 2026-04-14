@@ -20,6 +20,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.routers import chat, agents, designer
+from server.routers.profile import router as profile_router
+from server.agent_store import load_all_agents
 
 app = FastAPI(title="haji-ai server", version="0.1.0")
 
@@ -56,6 +58,11 @@ def _register_demo_agents() -> None:
 
 _register_demo_agents()
 
+# 从文件恢复持久化的 Agent
+_n = load_all_agents()
+if _n > 0:
+    print(f"[startup] 从文件恢复 {_n} 个 Agent")
+
 # CORS 全开（开发阶段）
 app.add_middleware(
     CORSMiddleware,
@@ -68,6 +75,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(designer.router, prefix="/api")
+app.include_router(profile_router, prefix="/api")
 
 
 @app.get("/health")

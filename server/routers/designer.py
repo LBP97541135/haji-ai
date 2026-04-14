@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 
 from server.deps import get_designer
 from server.models import DesignerCreateRequest, DesignerCreateResponse
+from server.agent_store import save_agent
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,6 +34,11 @@ async def create_agent(req: DesignerCreateRequest):
     definition_dict = None
     if result.definition:
         definition_dict = result.definition.model_dump()
+        # 持久化保存 Agent
+        try:
+            save_agent(result.definition)
+        except Exception as e:
+            logger.warning("[designer/create] 保存 Agent 失败: %s", e)
 
     return DesignerCreateResponse(
         ok=True,

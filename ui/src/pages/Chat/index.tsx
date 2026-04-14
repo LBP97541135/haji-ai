@@ -10,6 +10,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   isStreaming?: boolean
+  timestamp?: Date
 }
 
 interface SessionState {
@@ -71,8 +72,8 @@ export default function ChatPage() {
           ...existing,
           messages: [
             ...existing.messages,
-            { id: userMsgId, role: 'user', content: userText },
-            { id: aiMsgId, role: 'assistant', content: '', isStreaming: true },
+            { id: userMsgId, role: 'user', content: userText, timestamp: new Date() },
+            { id: aiMsgId, role: 'assistant', content: '', isStreaming: true, timestamp: new Date() },
           ],
         },
       }
@@ -225,6 +226,7 @@ export default function ChatPage() {
                   isStreaming={msg.isStreaming}
                   agentName={msg.role === 'assistant' ? selectedAgent.name : undefined}
                   agentAvatar={msg.role === 'assistant' ? selectedAgent.avatar : undefined}
+                  timestamp={msg.timestamp}
                 />
               ))}
               <div ref={messagesEndRef} />

@@ -5,11 +5,18 @@ interface MessageBubbleProps {
   isStreaming?: boolean
   agentName?: string
   agentAvatar?: string
+  timestamp?: Date
+}
+
+// 过滤 <think>...</think> 思考块（minimax 模型会返回这个）
+function filterThink(content: string): string {
+  return content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
 }
 
 // 简单 markdown 渲染：支持粗体、换行
 function renderContent(content: string) {
-  const parts = content.split(/(\*\*.*?\*\*)/g)
+  const filtered = filterThink(content)
+  const parts = filtered.split(/(\*\*.*?\*\*)/g)
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return <strong key={i}>{part.slice(2, -2)}</strong>
@@ -30,6 +37,7 @@ export default function MessageBubble({
   isStreaming,
   agentName,
   agentAvatar,
+  timestamp,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
 
@@ -62,10 +70,15 @@ export default function MessageBubble({
           }`}
         >
           {renderContent(content)}
-          {isStreaming && (
-            <span className="inline-block w-1 h-4 bg-current ml-0.5 animate-pulse rounded-full" />
-          )}
+          {isStreaming && <span className="animate-pulse">▌</span>}
         </div>
+
+        {/* 时间戳 */}
+        {timestamp && (
+          <div className={`text-xs text-gray-400 mt-1 ${isUser ? 'text-right' : 'text-left'}`}>
+            {timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        )}
       </div>
     </div>
   )

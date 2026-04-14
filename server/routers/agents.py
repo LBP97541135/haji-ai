@@ -32,6 +32,14 @@ def list_agents():
     return result
 
 
+@router.delete("/agents/{code}")
+def delete_agent_api(code: str):
+    """删除指定 Agent（从 registry 和持久化文件中移除）"""
+    from server.agent_store import delete_agent
+    delete_agent(code)
+    return {"ok": True, "code": code}
+
+
 @router.get("/agents/{code}", response_model=AgentDetail)
 def get_agent(code: str):
     """返回单个 Agent 详情"""

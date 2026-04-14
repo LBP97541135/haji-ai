@@ -1,6 +1,11 @@
 // api/client.ts - 封装所有后端 API 调用
 const BASE_URL = 'http://localhost:8766'
 
+// 过滤 <think>...</think> 思考块（minimax 模型会返回这个）
+export function filterThink(content: string): string {
+  return content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+}
+
 export interface AgentSummary {
   code: string
   name: string
@@ -89,7 +94,7 @@ export const api = {
             try {
               const data = JSON.parse(line.slice(6))
               if (data.type === 'token') onToken(data.content)
-              if (data.type === 'done') onDone(data.content, data.session_id || sessionId)
+              if (data.type === 'done') onDone(filterThink(data.content), data.session_id || sessionId)
               if (data.type === 'error') onError?.(data.content)
             } catch {
               // ignore parse errors
@@ -118,9 +123,21 @@ export const api = {
     return res.json()
   },
 
+  // 删除 Agent
+  deleteAgent: async (code: string) => {
+    const res = await fetch(`${BASE_URL}/api/agents/${code}`, { method: 'DELETE' })
+    return res.json()
+  },
+
   // 健康检查
   health: async () => {
     const res = await fetch(`${BASE_URL}/health`)
+    return res.json()
+  },
+
+  // 获取 Profile（模型配置等）
+  getProfile: async () => {
+    const res = await fetch(`${BASE_URL}/api/profile`)
     return res.json()
   },
 }

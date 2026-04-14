@@ -586,12 +586,28 @@ haji-ai/
 
 > 第三期完成后开始规划，任务详情待补充。
 
-- **TASK-025** FastAPI 桥接层（连接 haiji 核心框架与前端）
-- **TASK-026** UI 基础架构（React + Tailwind + Vite 项目初始化，Tab 导航框架）
-- **TASK-027** 会话页面（单聊 + 群聊，流式消息渲染）
-- **TASK-028** 联系人页面（Agent 列表、添加 Agent、Designer 入口）
-- **TASK-029** 我的页面（API Key 配置、工作区管理、全局设置）
-- **TASK-030** 朋友圈页面（Agent 发圈、时间流、点赞/评论）
+- **TASK-025** FastAPI 桥接层（连接 haiji 核心框架与前端）✅ 已完成 2026-04-14
+  - server/ 目录，独立 FastAPI 应用，CORS 全开，静态文件服务
+  - GET /api/agents, POST /api/chat/stream (SSE), POST /api/chat, POST /api/designer/create
+  - 内置两个 Demo Agent（哈基助手 + 代码助手），端口 8766
+- **TASK-026** UI 基础架构（React + Tailwind + Vite 项目初始化，Tab 导航框架）✅ 已完成 2026-04-14
+  - ui/ 目录，React + TypeScript + Tailwind CSS v4 + lucide-react
+  - 微信风格三 Tab 导航（会话/联系人/我的），SSE 流式聊天，Agent 气泡
+- **TASK-026b** AgentDefinition 扩展（soul/bio/avatar/tags）✅ 已完成 2026-04-14
+  - AgentDefinition 新增 avatar/bio/soul/tags 字段
+  - @agent 装饰器新增对应参数，soul 自动注入 system_prompt 最前面
+- **TASK-021** Designer 模块（自然语言 → Agent 三步生成）✅ 已完成 2026-04-14
+  - haiji/designer/：Generator + Validator + Registrar + Designer 门面类
+  - 27 个测试，557 总测试全通过
+  - 用法：result = await designer.design("我想要一个懂投资的朋友")
+- **TASK-014b** RAG 重构（可插拔知识库）✅ 已完成 2026-04-14
+  - BaseKnowledgeBase 抽象基类 + KnowledgeBase 内置实现 + QwenEmbedder
+  - @agent(rag=kb) 一行开启 RAG，on_before/after_search 预留扩展钩子
+- **TASK-027** 会话页面完善（think 过滤、时间戳、打字光标）🔄 进行中
+- **TASK-028** 联系人页面（搜索、详情卡片、删除、Designer 入口）🔄 进行中
+- **TASK-029** 我的页面（profile API、LLM 配置展示）🔄 进行中
+- **TASK-030** 朋友圈页面（Agent 发圈、时间流、点赞/评论）🔄 进行中
+- **TASK-025b** Agent 持久化（workspace/agents/JSON，重启不丢）🔄 进行中
 - **TASK-031** 前端集成测试 + UI 打磨
 
 ---
@@ -613,13 +629,14 @@ haji-ai/
 
 ## 进度快照
 
-- **当前阶段：** 第三期进行中（TASK-020 ✅ 已完成）
-- **当前任务：** TASK-021 designer 模块（AI 设计器，自然语言 → Agent/工作流定义）
-- **已完成任务数：** 21 / 32
-- **第一期完成情况：** TASK-001 ～ TASK-010 全部 ✅，可运行端到端示例，98 个测试通过
-- **第二期完成情况：** TASK-011 ✅（prompt 34测试 98%）；TASK-012 ✅（workspace 27测试 98%）；TASK-013 ✅（knowledge 64测试 92.5%）；TASK-014 ✅（rag 25测试 97.67%）；TASK-014b ✅（RAG 重构，61 个新增测试）；TASK-015 ✅（api 17测试 89%）；TASK-016 ✅（observer 37测试 100%）；TASK-017 ✅（集成示例 3个脚本全跑通）；总测试数 363 个
-- **第三期完成情况：** TASK-018 ✅（startup 67测试 91.11%）；TASK-019 ✅（workflow 52测试 98.54%）；TASK-020 ✅（sandbox 58测试 98.77%）；总测试数 530 个
-- **最后更新：** 2026-04-14 11:45
+- **当前阶段：** 第四期前端 UI 进行中
+- **当前任务：** TASK-027~031 前端完善 + Agent 持久化
+- **已完成任务数：** 26 / 36
+- **第一期完成情况：** TASK-001 ～ TASK-010 全部 ✅，98 个测试通过
+- **第二期完成情况：** TASK-011~017 全部 ✅，总测试数 363 个
+- **第三期完成情况：** TASK-018~020 ✅（startup/workflow/sandbox），TASK-021 ✅（Designer），TASK-014b ✅（RAG重构），总测试数 557 个
+- **第四期完成情况：** TASK-025 ✅（FastAPI桥接）；TASK-026 ✅（React前端基础）；TASK-026b ✅（AgentDefinition扩展）；进行中：TASK-027~031
+- **最后更新：** 2026-04-14 12:00
 
 ### 第二期推进顺序（更新）
 
