@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Server, Cpu, Hash, BarChart2 } from 'lucide-react'
 import { api } from '../../api/client'
+import type { UserProfile } from '../../api/client'
 
 interface HealthInfo {
   status: string
@@ -20,6 +21,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileInfo | null>(null)
   const [agentCount, setAgentCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
 
   useEffect(() => {
     Promise.allSettled([
@@ -32,6 +34,9 @@ export default function ProfilePage() {
       if (agentsRes.status === 'fulfilled') setAgentCount(agentsRes.value.length)
       setLoading(false)
     })
+
+    // 单独获取用户画像，失败不影响主体页面
+    api.getUserProfile().then(setUserProfile).catch(() => {})
   }, [])
 
   return (
@@ -119,6 +124,31 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* AI 对我的了解 */}
+        {userProfile && (
+          <section className="bg-white rounded-2xl p-4 shadow-sm">
+            <h3 className="font-semibold text-gray-700 mb-3">🧠 AI 对我的了解</h3>
+            <p className="text-xs text-gray-400 mb-2">
+              累计对话 <span className="text-gray-600 font-medium">{userProfile.message_count}</span> 条
+              {userProfile.last_seen_agent && (
+                <span>，最近和 {userProfile.last_seen_agent} 聊过</span>
+              )}
+            </p>
+            {userProfile.facts.length > 0 ? (
+              <ul className="space-y-1">
+                {userProfile.facts.map((fact: string, i: number) => (
+                  <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
+                    <span className="text-green-500 mt-0.5">•</span>
+                    {fact}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400">多和 AI 聊聊，TA 会慢慢了解你 ✨</p>
+            )}
+          </section>
+        )}
 
         {/* 框架信息 */}
         <div className="bg-white rounded-xl p-4 shadow-sm">

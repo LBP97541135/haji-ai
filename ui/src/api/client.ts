@@ -6,6 +6,16 @@ export function filterThink(content: string): string {
   return content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
 }
 
+// 获取或初始化用户 ID（存于 localStorage）
+function getUserId(): string {
+  let uid = localStorage.getItem('haji_user_id')
+  if (!uid) {
+    uid = 'user_001'
+    localStorage.setItem('haji_user_id', uid)
+  }
+  return uid
+}
+
 export interface AgentSummary {
   code: string
   name: string
@@ -33,6 +43,15 @@ export interface HistoryMessage {
   content: string
 }
 
+export interface UserProfile {
+  user_id: string
+  display_name: string
+  facts: string[]
+  preferences: Record<string, string>
+  last_seen_agent: string
+  message_count: number
+}
+
 export const api = {
   // 获取所有 Agent
   getAgents: async (): Promise<AgentSummary[]> => {
@@ -47,15 +66,15 @@ export const api = {
   },
 
   // 非流式聊天
-  chat: async (agentCode: string, message: string, sessionId: string): Promise<ChatResponse> => {
+  chat: async (agentCode: string, message: string, _sessionId: string): Promise<ChatResponse> => {
     const res = await fetch(`${BASE_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agent_code: agentCode,
         message,
-        session_id: sessionId,
-        user_id: 'user_001',
+        session_id: "",
+        user_id: getUserId(),
       }),
     })
     return res.json()
@@ -65,9 +84,9 @@ export const api = {
   chatStream: (
     agentCode: string,
     message: string,
-    sessionId: string,
+    _sessionId: string,
     onToken: (token: string) => void,
-    onDone: (content: string, sessionId: string) => void,
+    onDone: (content: string, resolvedSessionId: string) => void,
     onError?: (err: string) => void,
   ) => {
     fetch(`${BASE_URL}/api/chat/stream`, {
@@ -76,8 +95,8 @@ export const api = {
       body: JSON.stringify({
         agent_code: agentCode,
         message,
-        session_id: sessionId,
-        user_id: 'user_001',
+        session_id: "",
+        user_id: getUserId(),
       }),
     }).then(async (res) => {
       const reader = res.body!.getReader()
@@ -94,7 +113,7 @@ export const api = {
             try {
               const data = JSON.parse(line.slice(6))
               if (data.type === 'token') onToken(data.content)
-              if (data.type === 'done') onDone(filterThink(data.content), data.session_id || sessionId)
+              if (data.type === 'done') onDone(filterThink(data.content), data.session_id || '')
               if (data.type === 'error') onError?.(data.content)
             } catch {
               // ignore parse errors
@@ -140,4 +159,24 @@ export const api = {
     const res = await fetch(`${BASE_URL}/api/profile`)
     return res.json()
   },
+
+  // 获取 AI 对用户的了解（用户画像）
+  getUserProfile: async (userId?: string): Promise<UserProfile> => {
+    const uid = userId || getUserId()
+    const res = await fetch(`${BASE_URL}/api/users/${uid}/profile`)
+    return res.json()
+  },
+
+  // 设置用户显示名称
+  setDisplayName: async (name: string) => {
+    const uid = getUserId()
+    const res = await fetch(`${BASE_URL}/api/users/${uid}/profile/name`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    return res.json()
+  },
 }
+
+export { getUserId }

@@ -19,7 +19,7 @@ load_dotenv(
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routers import chat, agents, designer
+from server.routers import chat, agents, designer, users
 from server.routers.profile import router as profile_router
 from server.agent_store import load_all_agents
 
@@ -123,6 +123,7 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(designer.router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
+app.include_router(users.router, prefix="/api")
 
 
 @app.get("/health")

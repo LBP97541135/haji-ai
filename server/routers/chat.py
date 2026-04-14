@@ -21,16 +21,18 @@ from haiji.context.definition import ExecutionContext
 from haiji.sse.base import SseEventEmitter
 from haiji.sse.definition import SseEventType
 
-from server.deps import get_llm_client, get_memory
+from server.deps import get_llm_client, get_memory, get_user_memory
 from server.models import ChatRequest, ChatResponse, SessionHistoryResponse, HistoryMessage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _resolve_session_id(session_id: str) -> str:
-    """如果 session_id 为空，生成一个新的"""
-    return session_id if session_id else uuid.uuid4().hex
+def _make_session_id(req: ChatRequest) -> str:
+    """如果 session_id 为空，生成固定的私聊 session_id"""
+    if req.session_id:
+        return req.session_id
+    return f"private_{req.agent_code}_{req.user_id}"
 
 
 async def _stream_agent(req: ChatRequest) -> AsyncGenerator[str, None]:
@@ -42,7 +44,7 @@ async def _stream_agent(req: ChatRequest) -> AsyncGenerator[str, None]:
         yield f"data: {error_data}\n\n"
         return
 
-    session_id = _resolve_session_id(req.session_id)
+    session_id = _make_session_id(req)
     ctx = ExecutionContext.create(
         session_id=session_id,
         agent_code=req.agent_code,
@@ -51,6 +53,14 @@ async def _stream_agent(req: ChatRequest) -> AsyncGenerator[str, None]:
     memory = get_memory()
     llm = get_llm_client()
     agent = cls()
+
+    # 注入用户上下文到 system_prompt
+    user_mem = get_user_memory()
+    user_ctx = user_mem.build_user_context_prompt(req.user_id, req.agent_code)
+    if user_ctx:
+        agent.system_prompt = (agent.system_prompt or "") + f"\n\n---\n{user_ctx}"
+    user_mem.increment_message_count(req.user_id, req.agent_code)
+
     emitter = SseEventEmitter()
 
     # 启动 agent.stream_chat 为后台任务
@@ -114,7 +124,7 @@ async def chat(req: ChatRequest):
     if cls is None:
         raise HTTPException(status_code=404, detail=f"Agent '{req.agent_code}' not found")
 
-    session_id = _resolve_session_id(req.session_id)
+    session_id = _make_session_id(req)
     ctx = ExecutionContext.create(
         session_id=session_id,
         agent_code=req.agent_code,
@@ -123,6 +133,14 @@ async def chat(req: ChatRequest):
     memory = get_memory()
     llm = get_llm_client()
     agent = cls()
+
+    # 注入用户上下文到 system_prompt
+    user_mem = get_user_memory()
+    user_ctx = user_mem.build_user_context_prompt(req.user_id, req.agent_code)
+    if user_ctx:
+        agent.system_prompt = (agent.system_prompt or "") + f"\n\n---\n{user_ctx}"
+    user_mem.increment_message_count(req.user_id, req.agent_code)
+
     emitter = SseEventEmitter()
 
     agent_task = asyncio.create_task(
@@ -198,6 +216,14 @@ async def ask_agent(agent_code: str, q: str, user_id: str = "ai_caller"):
     memory = get_memory()
     llm = get_llm_client()
     agent = cls()
+
+    # 注入用户上下文到 system_prompt
+    user_mem = get_user_memory()
+    user_ctx = user_mem.build_user_context_prompt(user_id, agent_code)
+    if user_ctx:
+        agent.system_prompt = (agent.system_prompt or "") + f"\n\n---\n{user_ctx}"
+    user_mem.increment_message_count(user_id, agent_code)
+
     emitter = SseEventEmitter()
 
     agent_task = asyncio.create_task(

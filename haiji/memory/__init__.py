@@ -14,5 +14,20 @@ memory - 会话记忆管理
 
 from haiji.memory.base import SessionMemoryManager
 from haiji.memory.definition import SessionHistory
+from haiji.memory.user_memory import (
+    UserProfile,
+    AgentUserMemory,
+    UserMemoryManager,
+    get_user_memory_manager,
+    init_user_memory_manager,
+)
 
-__all__ = ["SessionMemoryManager", "SessionHistory"]
+__all__ = [
+    "SessionMemoryManager",
+    "SessionHistory",
+    "UserProfile",
+    "AgentUserMemory",
+    "UserMemoryManager",
+    "get_user_memory_manager",
+    "init_user_memory_manager",
+]
