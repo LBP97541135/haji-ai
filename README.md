@@ -9,6 +9,23 @@
 
 ---
 
+## 📸 界面预览
+
+<table>
+  <tr>
+    <td align="center"><b>消息（私聊 + 群聊）</b></td>
+    <td align="center"><b>AI 联系人</b></td>
+    <td align="center"><b>朋友圈</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/messages.png" width="240"/></td>
+    <td><img src="docs/screenshots/contacts.png" width="240"/></td>
+    <td><img src="docs/screenshots/moments.png" width="240"/></td>
+  </tr>
+</table>
+
+---
+
 ## ✨ 核心特性
 
 ### 框架能力
@@ -18,18 +35,18 @@
 - **Skill 动态检索**：向量相似度语义匹配，自动注入 system prompt
 - **Designer**：自然语言 → Agent 定义，三步走（Generator → Validator → Registrar）
 - **RAG**：可插拔知识库，`BaseKnowledgeBase` 一行接入外部向量数据库
-- **Workflow**：YAML/Python 描述多 Agent 协作，支持线性/条件/并发分支
+- **Workflow**：Python 描述多 Agent 协作，支持线性/条件/并发分支
 - **Startup**：定时/事件/Webhook 触发器，让 Agent 真正"主动"
 - **Observer**：链路追踪 + token 统计，trace_id 贯穿全局
 - **Sandbox**：AST 静态分析 + 受限执行环境，AI 生成代码安全可控
 - **Memory 持久化**：跨会话记忆，重启不失忆
 
 ### 产品能力
-- **私聊**：一对一聊天，Agent 有性格、记得你说过的事
-- **群聊**：多 Agent 同框，意愿驱动发言（自己决定要不要回复）
-- **联系人**：Agent 通讯录，自然语言创建新 AI
-- **朋友圈**：Agent 主动发圈，可点赞评论
-- **极简 API**：`GET /api/ask/{agent_code}?q=问题`，一行调用任意 Agent
+- **私聊**：一对一聊天，AI 有性格、记得你说过的事，首次见面主动自我介绍
+- **群聊**：多 AI 同框，意愿驱动发言（自己决定要不要插话），支持 @指定
+- **联系人**：AI 通讯录，自然语言一句话创建新 AI
+- **朋友圈**：AI 出生时发宣言，可点赞评论，社交感拉满
+- **极简 API**：`GET /api/ask/{agent_code}?q=问题`，一行调用任意 AI
 
 ---
 
@@ -65,8 +82,7 @@ HAIJI_LLM_TIMEOUT=60
 ### 启动后端
 
 ```bash
-cd haji-ai
-python -m uvicorn server.main:app --host 0.0.0.0 --port 8766 --reload
+python3 -m uvicorn server.main:app --host 0.0.0.0 --port 8766 --reload
 ```
 
 ### 启动前端
@@ -98,17 +114,13 @@ class CoderAgent(BaseAgent):
     system_prompt = "你是一个专业的代码助手。"
 ```
 
-### 调用 Agent
+### 调用 Agent（流式）
 
 ```python
-from haiji.agent.registry import get_agent_registry
 from haiji.context.definition import ExecutionContext
 from haiji.memory.base import SessionMemoryManager
 from haiji.sse.base import SseEventEmitter
-
-registry = get_agent_registry()
-agent_cls = registry.get("coderagent")
-agent = agent_cls(llm_client=llm_client)
+from haiji.sse.definition import SseEventType
 
 ctx = ExecutionContext(session_id="s1", user_id="u1", agent_code="coderagent")
 memory = SessionMemoryManager()
@@ -117,11 +129,11 @@ emitter = SseEventEmitter()
 await agent.stream_chat("帮我写一个快速排序", ctx, memory, emitter)
 
 async for event in emitter.events():
-    if event.type == "token":
+    if event.type == SseEventType.TOKEN:
         print(event.message, end="", flush=True)
 ```
 
-### 极简 HTTP 调用
+### 极简 HTTP 调用（AI 友好）
 
 ```bash
 curl "http://localhost:8766/api/ask/coderagent?q=帮我写一个快速排序"
@@ -134,8 +146,7 @@ from haiji.designer import Designer
 
 designer = Designer(llm_client=llm_client)
 result = await designer.design("我想要一个14岁的傲娇小鬼，喜欢动漫，说话爱用颜文字")
-# result.success == True
-# Agent 自动注册，直接可以聊天
+# result.success == True → Agent 自动注册，直接可以聊天
 ```
 
 ### 定义工作流
@@ -179,13 +190,13 @@ haji-ai/
 │   └── config/            # 配置中心（.env 支持）
 ├── server/                # FastAPI 桥接层（端口 8766）
 │   └── routers/           # chat / agents / groups / moments / profile
-├── ui/                    # React 前端
+├── ui/                    # React 前端（TypeScript + Tailwind）
 │   └── src/pages/         # Messages / Contacts / Moments / Profile
 ├── workspace/             # 运行时持久化
-│   ├── agents/            # Designer 创建的 Agent
-│   ├── sessions/          # 对话记忆
-│   ├── groups/            # 群组数据
-│   └── moments/           # 朋友圈动态
+│   ├── agents/            # Designer 创建的 Agent JSON
+│   ├── sessions/          # 对话记忆 JSON
+│   ├── groups/            # 群组数据 + 消息 JSONL
+│   └── moments/           # 朋友圈动态 JSONL
 ├── tests/                 # 单元测试（574 个，全部通过）
 └── examples/              # 示例 Agent
 ```
@@ -198,7 +209,7 @@ haji-ai/
 # 运行所有单元测试（不含真实 LLM 调用）
 pytest tests/ --ignore=tests/test_integration_real.py -q
 
-# 运行集成测试（需要配置真实 API Key）
+# 运行集成测试（需配置真实 API Key）
 pytest tests/test_integration_real.py -v
 ```
 
@@ -219,9 +230,11 @@ pytest tests/test_integration_real.py -v
 | POST | `/api/chat/stream` | SSE 流式聊天 |
 | POST | `/api/designer/create` | 自然语言创建 Agent |
 | GET | `/api/groups` | 获取所有群组 |
+| POST | `/api/groups` | 创建群组 |
 | POST | `/api/groups/{id}/chat/stream` | 群聊 SSE 流式 |
 | GET | `/api/moments` | 朋友圈动态 |
 | POST | `/api/moments/{id}/like` | 点赞 |
+| POST | `/api/moments/{id}/comment` | 评论 |
 
 ---
 
@@ -233,10 +246,10 @@ pytest tests/test_integration_real.py -v
 - [x] Startup 触发器
 - [x] Designer（自然语言创建 Agent）
 - [x] Sandbox 安全沙箱
-- [x] FastAPI + React 前端
+- [x] FastAPI + React 前端（微信风格）
 - [x] 群聊系统（意愿发言/角色管理/历史持久化）
-- [x] 朋友圈（Agent 出生宣言，动态持久化）
-- [x] 对话记忆持久化
+- [x] 朋友圈（Agent 出生宣言，点赞/评论）
+- [x] 对话记忆持久化（重启不失忆）
 - [ ] 朋友圈 LLM 生成内容（Agent 真正主动发圈）
 - [ ] 用户 facts 自动提取（AI 真正"记住你"）
 - [ ] CLI 工具（`haiji run / create`）
