@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, X, Sparkles, Search, Trash2, MessageCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '../../api/client'
 import type { AgentSummary } from '../../api/client'
+import AvatarBubble from '../../components/AvatarBubble'
 
 interface AgentDetail extends AgentSummary {
   soul?: string
@@ -153,7 +154,7 @@ export default function ContactsPage() {
         )}
         {!loading && filteredAgents.length === 0 && !backendError && (
           <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-            <div className="text-4xl mb-2">🤖</div>
+            <div className="text-4xl mb-2">👥</div>
             <p className="text-sm">{search ? '没有匹配的联系人' : '还没有 AI 联系人'}</p>
             {!search && <p className="text-xs mt-1">点击下方按钮创建第一个</p>}
           </div>
@@ -166,9 +167,7 @@ export default function ContactsPage() {
             className="flex items-center gap-4 px-4 py-3 bg-white border-b border-gray-100 hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer"
           >
             {/* 头像 */}
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center text-2xl flex-shrink-0">
-              {agent.avatar || '🤖'}
-            </div>
+            <AvatarBubble name={agent.name} code={agent.code} size="md" />
 
             {/* 信息 */}
             <div className="flex-1 min-w-0">
@@ -288,12 +287,7 @@ export default function ContactsPage() {
             <div className="px-6 pb-8 space-y-4">
               {/* Avatar + 基本信息 */}
               <div className="flex flex-col items-center text-center gap-2">
-                <div
-                  className="flex items-center justify-center bg-gradient-to-br from-blue-100 to-purple-100 rounded-full"
-                  style={{ width: 70, height: 70, fontSize: 36 }}
-                >
-                  {selectedAgent.avatar || '🤖'}
-                </div>
+                <AvatarBubble name={selectedAgent.name} code={selectedAgent.code} size="xl" />
                 <h2 className="text-xl font-bold text-gray-800">{selectedAgent.name}</h2>
                 {selectedAgent.bio && (
                   <p className="text-sm text-gray-500">{selectedAgent.bio}</p>

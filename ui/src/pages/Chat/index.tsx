@@ -4,6 +4,7 @@ import { Send, MessageCircle } from 'lucide-react'
 import { api } from '../../api/client'
 import type { AgentSummary } from '../../api/client'
 import MessageBubble from '../../components/MessageBubble'
+import AvatarBubble from '../../components/AvatarBubble'
 
 interface Message {
   id: string
@@ -181,9 +182,7 @@ export default function ChatPage() {
                   isSelected ? 'bg-gray-100' : ''
                 }`}
               >
-                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-xl flex-shrink-0">
-                  {agent.avatar || '🤖'}
-                </div>
+                <AvatarBubble name={agent.name} code={agent.code} size="md" />
                 <div className="flex-1 text-left min-w-0 hidden md:block">
                   <div className="text-sm font-medium text-gray-800 truncate">{agent.name}</div>
                   <div className="text-xs text-gray-400 truncate">
@@ -202,7 +201,7 @@ export default function ChatPage() {
           <>
             {/* 头部 */}
             <header className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
-              <div className="text-2xl">{selectedAgent.avatar || '🤖'}</div>
+              <AvatarBubble name={selectedAgent.name} code={selectedAgent.code} size="sm" />
               <div>
                 <div className="font-semibold text-gray-800">{selectedAgent.name}</div>
                 <div className="text-xs text-gray-400">{selectedAgent.bio}</div>
@@ -213,7 +212,7 @@ export default function ChatPage() {
             <div className="flex-1 overflow-y-auto px-4 py-4">
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                  <div className="text-5xl mb-3">{selectedAgent.avatar || '🤖'}</div>
+                  <AvatarBubble name={selectedAgent.name} code={selectedAgent.code} size="xl" className="mb-3" />
                   <div className="text-sm font-medium text-gray-600">{selectedAgent.name}</div>
                   <div className="text-xs mt-1">{selectedAgent.bio || '开始聊天吧！'}</div>
                 </div>
@@ -225,7 +224,7 @@ export default function ChatPage() {
                   content={msg.content}
                   isStreaming={msg.isStreaming}
                   agentName={msg.role === 'assistant' ? selectedAgent.name : undefined}
-                  agentAvatar={msg.role === 'assistant' ? selectedAgent.avatar : undefined}
+                  agentCode={msg.role === 'assistant' ? selectedAgent.code : undefined}
                   timestamp={msg.timestamp}
                 />
               ))}

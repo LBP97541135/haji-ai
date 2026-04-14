@@ -1,6 +1,7 @@
 // pages/Moments/index.tsx - AI 朋友圈页
 import { useState } from 'react'
 import { Camera } from 'lucide-react'
+import AvatarBubble from '../../components/AvatarBubble'
 
 interface Comment {
   author: string
@@ -121,9 +122,7 @@ export default function MomentsPage() {
             <div key={moment.id} className="bg-white mb-2 px-4 py-4">
               <div className="flex gap-3">
                 {/* 左侧头像 */}
-                <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center text-2xl flex-shrink-0">
-                  {moment.agent.avatar}
-                </div>
+                <AvatarBubble name={moment.agent.name} code={moment.agent.code} size="md" className="rounded-lg" />
 
                 {/* 右侧内容 */}
                 <div className="flex-1 min-w-0">

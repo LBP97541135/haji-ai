@@ -1,10 +1,12 @@
 // components/MessageBubble.tsx - 消息气泡组件
+import AvatarBubble from './AvatarBubble'
+
 interface MessageBubbleProps {
   role: 'user' | 'assistant'
   content: string
   isStreaming?: boolean
   agentName?: string
-  agentAvatar?: string
+  agentCode?: string
   timestamp?: Date
 }
 
@@ -36,7 +38,7 @@ export default function MessageBubble({
   content,
   isStreaming,
   agentName,
-  agentAvatar,
+  agentCode,
   timestamp,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
@@ -45,9 +47,7 @@ export default function MessageBubble({
     <div className={`flex items-end gap-2 mb-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* 头像 */}
       {!isUser && (
-        <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-lg flex-shrink-0">
-          {agentAvatar || '🤖'}
-        </div>
+        <AvatarBubble name={agentName || '?'} code={agentCode || 'default'} size="sm" />
       )}
       {isUser && (
         <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
