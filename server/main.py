@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.routers import chat, agents, designer, users, groups
 from server.routers.profile import router as profile_router
+from server.routers.moments import router as moments_router
 from server.agent_store import load_all_agents
 
 app = FastAPI(
@@ -110,6 +111,19 @@ _n = load_all_agents()
 if _n > 0:
     print(f"[startup] 从文件恢复 {_n} 个 Agent")
 
+# 为内置 Agent 补出生宣言（首次启动时）
+def _ensure_birth_moments() -> None:
+    from server.moment_store import has_moments, create_birth_moment
+    from haiji.agent.registry import get_agent_registry
+    registry = get_agent_registry()
+    for code, cls in registry.all().items():
+        if not has_moments(code):
+            defn = cls._agent_definition
+            create_birth_moment(code, defn.name, defn.bio or "")
+            print(f"[startup] 为 {defn.name}({code}) 创建出生宣言")
+
+_ensure_birth_moments()
+
 
 def _create_demo_group() -> None:
     """创建演示群组（如果不存在）"""
@@ -147,6 +161,7 @@ app.include_router(designer.router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(groups.router, prefix="/api")
+app.include_router(moments_router, prefix="/api")
 
 
 @app.get("/health")

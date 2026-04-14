@@ -220,6 +220,26 @@ export const api = {
     })
     return res.json()
   },
+
+  // 朋友圈动态
+  getMoments: async (limit = 50) => {
+    const res = await fetch(`${BASE_URL}/api/moments?limit=${limit}`)
+    return res.json()
+  },
+
+  likeMoment: async (momentId: string) => {
+    const res = await fetch(`${BASE_URL}/api/moments/${momentId}/like`, { method: 'POST' })
+    return res.json()
+  },
+
+  commentMoment: async (momentId: string, author: string, content: string, authorCode = '') => {
+    const res = await fetch(`${BASE_URL}/api/moments/${momentId}/comment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author, content, author_code: authorCode }),
+    })
+    return res.json()
+  },
 }
 
 export { getUserId }

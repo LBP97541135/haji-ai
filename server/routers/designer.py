@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from server.deps import get_designer
 from server.models import DesignerCreateRequest, DesignerCreateResponse
 from server.agent_store import save_agent
+from server.moment_store import create_birth_moment
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,6 +40,15 @@ async def create_agent(req: DesignerCreateRequest):
             save_agent(result.definition)
         except Exception as e:
             logger.warning("[designer/create] 保存 Agent 失败: %s", e)
+        # 自动发出生宣言（固定模板，零 token）
+        try:
+            create_birth_moment(
+                agent_code=result.definition.code,
+                agent_name=result.definition.name,
+                bio=result.definition.bio or "",
+            )
+        except Exception as e:
+            logger.warning("[designer/create] 创建出生宣言失败: %s", e)
 
     return DesignerCreateResponse(
         ok=True,
