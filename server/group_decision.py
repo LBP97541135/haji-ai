@@ -80,6 +80,10 @@ async def decide_speakers(
     # 过滤掉未注册的 Agent
     all_codes = [c for c in all_codes if registry.get(c) is not None]
 
+    # 过滤禁言成员（禁言的 Agent 不参与任何发言，包括被 @）
+    muted_codes = {m.agent_code for m in group.members if m.muted}
+    all_codes = [c for c in all_codes if c not in muted_codes]
+
     if not all_codes:
         return []
 

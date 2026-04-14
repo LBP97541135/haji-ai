@@ -169,6 +169,34 @@ export const api = {
     return res.json()
   },
 
+  updateGroupInfo: async (groupId: string, name?: string, description?: string) => {
+    const res = await fetch(`${BASE_URL}/api/groups/${groupId}/info`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description }),
+    })
+    return res.json()
+  },
+
+  setMemberRole: async (groupId: string, agentCode: string, role: string) => {
+    const res = await fetch(`${BASE_URL}/api/groups/${groupId}/members/${agentCode}/role`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    })
+    return res.json()
+  },
+
+  muteMember: async (groupId: string, agentCode: string) => {
+    const res = await fetch(`${BASE_URL}/api/groups/${groupId}/members/${agentCode}/mute`, { method: 'POST' })
+    return res.json()
+  },
+
+  unmuteMember: async (groupId: string, agentCode: string) => {
+    const res = await fetch(`${BASE_URL}/api/groups/${groupId}/members/${agentCode}/mute`, { method: 'DELETE' })
+    return res.json()
+  },
+
   // 获取 Profile（模型配置等）
   getProfile: async () => {
     const res = await fetch(`${BASE_URL}/api/profile`)

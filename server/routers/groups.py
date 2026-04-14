@@ -58,7 +58,7 @@ def list_groups():
             "name": g.name,
             "description": g.description,
             "member_count": len(g.members),
-            "members": [{"agent_code": m.agent_code, "role": m.role} for m in g.members],
+            "members": [{"agent_code": m.agent_code, "role": m.role, "muted": m.muted} for m in g.members],
         }
         for g in groups
     ]
@@ -85,7 +85,7 @@ def get_group(group_id: str):
         "group_id": g.group_id,
         "name": g.name,
         "description": g.description,
-        "members": [{"agent_code": m.agent_code, "role": m.role} for m in g.members],
+        "members": [{"agent_code": m.agent_code, "role": m.role, "muted": m.muted} for m in g.members],
     }
 
 
@@ -115,6 +115,61 @@ def remove_member(group_id: str, agent_code: str):
     g.members = [m for m in g.members if m.agent_code != agent_code]
     save_group(g)
     return {"ok": True}
+
+
+class UpdateRoleRequest(BaseModel):
+    role: str  # "owner" | "admin" | "member"
+
+
+class UpdateGroupInfoRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@router.put("/groups/{group_id}/info")
+def update_group_info(group_id: str, req: UpdateGroupInfoRequest):
+    """更新群基本信息（群名/描述）"""
+    from server.group_store import update_group_info as _update
+    g = _update(group_id, name=req.name, description=req.description)
+    if not g:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return {"ok": True, "name": g.name, "description": g.description}
+
+
+@router.put("/groups/{group_id}/members/{agent_code}/role")
+def set_member_role(group_id: str, agent_code: str, req: UpdateRoleRequest):
+    """修改成员角色（群主权限）"""
+    g = load_group(group_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="Group not found")
+    valid_roles = {"owner", "admin", "member"}
+    if req.role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {req.role}")
+    g.set_role(agent_code, req.role)  # type: ignore
+    save_group(g)
+    return {"ok": True, "agent_code": agent_code, "role": req.role}
+
+
+@router.post("/groups/{group_id}/members/{agent_code}/mute")
+def mute_member(group_id: str, agent_code: str):
+    """禁言成员（管理员权限）"""
+    g = load_group(group_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="Group not found")
+    g.set_muted(agent_code, True)
+    save_group(g)
+    return {"ok": True, "muted": True}
+
+
+@router.delete("/groups/{group_id}/members/{agent_code}/mute")
+def unmute_member(group_id: str, agent_code: str):
+    """解除禁言（管理员权限）"""
+    g = load_group(group_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="Group not found")
+    g.set_muted(agent_code, False)
+    save_group(g)
+    return {"ok": True, "muted": False}
 
 
 # ── 群聊（核心）────────────────────────────────────────────────

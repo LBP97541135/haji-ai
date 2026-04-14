@@ -5,11 +5,13 @@
   "members": [
     {
       "agent_code": "haji_assistant",
-      "role": "owner"
+      "role": "owner",
+      "muted": false
     },
     {
       "agent_code": "haji_coder",
-      "role": "member"
+      "role": "member",
+      "muted": false
     }
   ]
 }
