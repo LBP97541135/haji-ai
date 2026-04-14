@@ -162,3 +162,69 @@ def get_session_history(session_id: str):
         content = msg.content if isinstance(msg.content, str) else str(msg.content)
         result.append(HistoryMessage(role=role, content=content))
     return SessionHistoryResponse(messages=result)
+
+
+@router.get(
+    "/ask/{agent_code}",
+    summary="极简单轮问答（AI 工具调用友好）",
+    description="""
+一行调用任意 Agent，无需 session 管理，适合 AI 将 Agent 作为工具使用。
+
+**示例（curl）：**
+```bash
+curl "http://localhost:8766/api/ask/haji_assistant?q=你好"
+```
+
+**示例（AI 工具调用）：**
+直接 GET，把返回的 `answer` 字段内容交给用户。
+
+注意：该接口每次都是全新上下文（无记忆），适合单轮问答。
+多轮对话请使用 POST /api/chat。
+""",
+)
+async def ask_agent(agent_code: str, q: str, user_id: str = "ai_caller"):
+    """极简单轮问答：GET /api/ask/{code}?q=问题文本"""
+    registry = get_agent_registry()
+    cls = registry.get(agent_code)
+    if cls is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_code}' not found. Available: {registry.all_codes()}")
+
+    session_id = uuid.uuid4().hex
+    ctx = ExecutionContext.create(
+        session_id=session_id,
+        agent_code=agent_code,
+        user_id=user_id,
+    )
+    memory = get_memory()
+    llm = get_llm_client()
+    agent = cls()
+    emitter = SseEventEmitter()
+
+    agent_task = asyncio.create_task(
+        agent.stream_chat(q, ctx, emitter, memory, llm_client=llm)
+    )
+
+    tokens: list[str] = []
+    final_content = ""
+
+    async for event in emitter.events():
+        if event.type == SseEventType.TOKEN:
+            tokens.append(event.message or "")
+        elif event.type == SseEventType.DONE:
+            final_content = event.message or "".join(tokens)
+
+    await agent_task
+
+    if not final_content:
+        final_content = "".join(tokens)
+
+    # 过滤 <think> 块
+    import re
+    final_content = re.sub(r"<think>[\s\S]*?</think>", "", final_content).strip()
+
+    return {
+        "agent_code": agent_code,
+        "question": q,
+        "answer": final_content,
+        "session_id": session_id,
+    }

@@ -23,7 +23,54 @@ from server.routers import chat, agents, designer
 from server.routers.profile import router as profile_router
 from server.agent_store import load_all_agents
 
-app = FastAPI(title="haji-ai server", version="0.1.0")
+app = FastAPI(
+    title="haji-ai API",
+    version="0.1.0",
+    description="""
+## haji-ai — Multi-Agent 框架 API
+
+haji-ai 是一个面向 AI 社交平台的 Multi-Agent 框架。本 API 允许你与已注册的 AI Agent 对话、管理联系人、用自然语言设计新 Agent。
+
+### 快速开始
+
+**列出所有 Agent：**
+```
+GET /api/agents
+```
+
+**极简单轮问答（最简调用方式）：**
+```
+GET /api/ask/{agent_code}?q=你的问题
+```
+
+**流式聊天（前端/SSE）：**
+```
+POST /api/chat/stream
+{"agent_code": "haji_assistant", "message": "你好", "session_id": "", "user_id": "user_001"}
+```
+
+**用自然语言创建新 Agent：**
+```
+POST /api/designer/create
+{"description": "我想要一个懂投资的朋友，说话直接，不废话"}
+```
+
+### 内置 Agent
+
+| code | name | 说明 |
+|------|------|------|
+| `haji_assistant` | 哈基助手 | 通用 AI 助手，有问必答 |
+| `haji_coder` | 代码助手 | 专注 Python/JS 代码 |
+
+### 为 AI 设计的接口
+
+- `GET /api/ask/{agent_code}?q=问题` — 一行调用，无需 session，适合 AI 工具调用
+- `GET /api/agents` — 发现所有可用 Agent
+- `POST /api/designer/create` — 用自然语言创建新 Agent
+""",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
 
 
 def _register_demo_agents() -> None:
