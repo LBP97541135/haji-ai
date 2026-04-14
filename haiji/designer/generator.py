@@ -235,6 +235,12 @@ class DesignerGenerator:
         if not content:
             raise ValueError("LLM 返回空内容")
 
+        # 过滤 <think>...</think> 块（minimax 等模型的思维链输出）
+        import re as _re
+        content = _re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
+        if not content:
+            raise ValueError("LLM 返回空内容（过滤 think 块后）")
+
         # 尝试剥除 markdown fence（防御性处理）
         if content.startswith("```"):
             lines = content.splitlines()

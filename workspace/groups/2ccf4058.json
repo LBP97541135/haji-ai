@@ -1,0 +1,17 @@
+{
+  "group_id": "2ccf4058",
+  "name": "111",
+  "description": "",
+  "members": [
+    {
+      "agent_code": "haji_assistant",
+      "role": "owner",
+      "muted": false
+    },
+    {
+      "agent_code": "haji_coder",
+      "role": "member",
+      "muted": false
+    }
+  ]
+}

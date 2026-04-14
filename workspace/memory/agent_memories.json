@@ -1,0 +1,18 @@
+{
+  "haji_assistant": {
+    "user_001": {
+      "agent_code": "haji_assistant",
+      "user_id": "user_001",
+      "notes": [],
+      "last_topics": []
+    }
+  },
+  "haji_coder": {
+    "user_001": {
+      "agent_code": "haji_coder",
+      "user_id": "user_001",
+      "notes": [],
+      "last_topics": []
+    }
+  }
+}
