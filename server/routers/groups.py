@@ -18,7 +18,8 @@ from haiji.sse.definition import SseEventType
 
 from server.deps import get_llm_client, get_memory, get_user_memory
 from server.group_store import (
-    Group, GroupMember, save_group, load_group, load_all_groups, delete_group
+    Group, GroupMember, save_group, load_group, load_all_groups, delete_group,
+    GroupMessage, append_group_message, load_group_messages,
 )
 from server.group_decision import decide_speakers
 
@@ -204,6 +205,17 @@ async def _group_stream(req: GroupChatRequest) -> AsyncGenerator[str, None]:
         llm_client=llm,
     )
 
+    # 持久化用户消息
+    from datetime import datetime, timezone
+    _ts = datetime.now(timezone.utc).isoformat()
+    append_group_message(GroupMessage(
+        group_id=req.group_id,
+        type="user",
+        user_id=req.user_id,
+        content=req.message,
+        timestamp=_ts,
+    ))
+
     if not speakers:
         yield f"data: {json.dumps({'type': 'system', 'content': '群里没有 Agent 想回复这条消息'})}\n\n"
         return
@@ -252,6 +264,19 @@ async def _group_stream(req: GroupChatRequest) -> AsyncGenerator[str, None]:
                     "content": event.message or "",
                 })
             elif event.type == SseEventType.DONE:
+                # 持久化 agent 消息
+                import re as _re
+                _done_content = _re.sub(r"<think>[\s\S]*?</think>", "", event.message or "").strip()
+                if _done_content:
+                    from datetime import datetime, timezone
+                    append_group_message(GroupMessage(
+                        group_id=req.group_id,
+                        type="agent",
+                        agent_code=agent_code,
+                        agent_name=d.name,
+                        content=_done_content,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    ))
                 data = json.dumps({
                     "type": "agent_done",
                     "agent_code": agent_code,
@@ -286,6 +311,24 @@ async def group_chat_stream(group_id: str, req: GroupChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/groups/{group_id}/messages")
+def get_group_messages(group_id: str, limit: int = 50):
+    """获取群聊历史消息"""
+    msgs = load_group_messages(group_id, limit=limit)
+    return [
+        {
+            "type": m.type,
+            "agent_code": m.agent_code,
+            "agent_name": m.agent_name,
+            "content": m.content,
+            "user_id": m.user_id,
+            "timestamp": m.timestamp,
+        }
+        for m in msgs
+        if m.content  # 过滤掉 content 为空的条目
+    ]
 
 
 @router.post("/groups/{group_id}/chat")

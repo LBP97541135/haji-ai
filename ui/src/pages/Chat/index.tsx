@@ -12,6 +12,7 @@ interface Message {
   content: string
   isStreaming?: boolean
   timestamp?: Date
+  isGreeting?: boolean  // 欢迎语标记，不存 localStorage
 }
 
 interface SessionState {
@@ -63,14 +64,58 @@ export default function ChatPage() {
       })
   }, [])
 
-  // 持久化 sessions 到 localStorage
+  // 持久化 sessions 到 localStorage（过滤欢迎语，避免重复显示）
   useEffect(() => {
     try {
-      localStorage.setItem('haji_sessions', JSON.stringify(sessions))
+      const sessionsToSave: Record<string, SessionState> = {}
+      for (const [code, session] of Object.entries(sessions)) {
+        sessionsToSave[code] = {
+          ...session,
+          messages: session.messages.filter((m) => !m.isGreeting),
+        }
+      }
+      localStorage.setItem('haji_sessions', JSON.stringify(sessionsToSave))
     } catch {
       // localStorage 满了或不可用，忽略
     }
   }, [sessions])
+
+  // 切换 Agent 时，如果历史为空则拉取欢迎语
+  useEffect(() => {
+    if (!selectedAgent) return
+    const session = sessions[selectedAgent.code]
+    const realMessages = (session?.messages ?? []).filter((m) => !m.isGreeting)
+    if (realMessages.length > 0) return  // 有真实历史，不需要欢迎语
+
+    const agentCode = selectedAgent.code
+    fetch(`http://10.40.108.146:8766/api/agents/${agentCode}/greeting?user_id=user_001`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.greeting) return
+        setSessions((prev) => {
+          const existing = prev[agentCode]
+          // 再次检查：如果此时已有真实消息（用户切换过来又发消息），就不插入欢迎语
+          const currentReal = (existing?.messages ?? []).filter((m) => !m.isGreeting)
+          if (currentReal.length > 0) return prev
+          return {
+            ...prev,
+            [agentCode]: {
+              sessionId: existing?.sessionId ?? '',
+              messages: [
+                {
+                  id: `greeting_${agentCode}`,
+                  role: 'assistant' as const,
+                  content: data.greeting,
+                  timestamp: new Date(),
+                  isGreeting: true,
+                },
+              ],
+            },
+          }
+        })
+      })
+      .catch(() => {})  // 失败静默处理，不影响主聊天功能
+  }, [selectedAgent])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 滚动到底部
   useEffect(() => {

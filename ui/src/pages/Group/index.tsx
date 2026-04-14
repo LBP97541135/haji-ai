@@ -460,7 +460,7 @@ export default function GroupPage() {
 
   useEffect(() => {
     loadGroups().then(gs => {
-      if (gs.length > 0 && !selectedGroup) setSelectedGroup(gs[0])
+      if (gs.length > 0 && !selectedGroup) selectGroup(gs[0])
     })
     fetch(`${BASE_URL}/api/agents`)
       .then(r => r.json())
@@ -550,13 +550,49 @@ export default function GroupPage() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
   }
 
+  const selectGroup = useCallback(async (group: GroupInfo) => {
+    setSelectedGroup(group)
+    setMessages([])
+    setShowSettings(false)
+    // 恢复历史消息
+    try {
+      const res = await fetch(`${BASE_URL}/api/groups/${group.group_id}/messages?limit=50`)
+      if (!res.ok) return
+      const data: Array<{
+        type: string
+        agent_code: string
+        agent_name: string
+        content: string
+        user_id: string
+        timestamp: string
+      }> = await res.json()
+      if (!Array.isArray(data) || data.length === 0) return
+      const restored: GroupMessage[] = data
+        .filter((m) => m.content)  // 过滤空内容
+        .map((m, i) => ({
+          id: `hist_${i}_${m.timestamp || i}`,
+          type: m.type as 'user' | 'agent' | 'system',
+          agent_code: m.agent_code || undefined,
+          agent_name: m.agent_name || undefined,
+          content: m.content,
+          timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+        }))
+      setMessages(restored)
+    } catch {
+      // 恢复失败静默处理，不影响主流程
+    }
+  }, [])
+
   const handleGroupCreated = async (group: GroupInfo) => {
     setShowCreateModal(false)
     const gs = await loadGroups()
     const fresh = gs.find(g => g.group_id === group.group_id)
-    if (fresh) setSelectedGroup(fresh)
-    setMessages([])
-    setShowSettings(false)
+    if (fresh) {
+      await selectGroup(fresh)
+    } else {
+      setMessages([])
+      setShowSettings(false)
+    }
   }
 
   const handleGroupUpdated = (updated: GroupInfo) => {
@@ -567,14 +603,12 @@ export default function GroupPage() {
   const handleGroupDeleted = async () => {
     setShowSettings(false)
     const gs = await loadGroups()
-    setSelectedGroup(gs.length > 0 ? gs[0] : null)
-    setMessages([])
-  }
-
-  const selectGroup = (group: GroupInfo) => {
-    setSelectedGroup(group)
-    setMessages([])
-    setShowSettings(false)
+    if (gs.length > 0) {
+      await selectGroup(gs[0])
+    } else {
+      setSelectedGroup(null)
+      setMessages([])
+    }
   }
 
   return (

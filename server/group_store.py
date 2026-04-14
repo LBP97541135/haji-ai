@@ -129,3 +129,50 @@ def update_group_info(group_id: str, name: str | None = None, description: str |
         g.description = description
     save_group(g)
     return g
+
+
+# ── 群聊消息持久化 ────────────────────────────────────────────
+
+import json as _json
+from dataclasses import asdict as _asdict
+
+
+@dataclass
+class GroupMessage:
+    """群聊消息记录"""
+    group_id: str
+    type: str          # "user" | "agent" | "system"
+    agent_code: str = ""
+    agent_name: str = ""
+    content: str = ""
+    user_id: str = ""
+    timestamp: str = ""  # ISO 格式
+
+
+def _messages_path(group_id: str) -> Path:
+    return STORE_DIR / f"{group_id}_messages.jsonl"
+
+
+def append_group_message(msg: GroupMessage) -> None:
+    """追加一条群聊消息到 JSONL 文件"""
+    path = _messages_path(msg.group_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(_json.dumps(_asdict(msg), ensure_ascii=False) + "\n")
+
+
+def load_group_messages(group_id: str, limit: int = 100) -> list[GroupMessage]:
+    """加载最近 limit 条群聊消息"""
+    path = _messages_path(group_id)
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    recent = lines[-limit:]
+    msgs = []
+    for line in recent:
+        try:
+            d = _json.loads(line)
+            msgs.append(GroupMessage(**d))
+        except Exception:
+            pass
+    return msgs
