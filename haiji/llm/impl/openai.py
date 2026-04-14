@@ -97,9 +97,19 @@ class OpenAILlmClient(LlmClient):
             stream=False,
         )
         choice = response.choices[0]
+        # 透传 usage（部分平台可能返回 None）
+        usage = None
+        if response.usage:
+            from haiji.llm.definition import LlmUsage
+            usage = LlmUsage(
+                prompt_tokens=response.usage.prompt_tokens or 0,
+                completion_tokens=response.usage.completion_tokens or 0,
+                total_tokens=response.usage.total_tokens or 0,
+            )
         return LlmResponse(
             content=choice.message.content,
             finish_reason=choice.finish_reason,
+            usage=usage,
         )
 
     async def stream_chat(self, request: LlmRequest) -> AsyncGenerator[str, None]:
@@ -113,8 +123,11 @@ class OpenAILlmClient(LlmClient):
             stream=True,
         )
         async for chunk in stream:
+            # 部分平台（如 minimax）会在流中发送 choices 为空的心跳 chunk
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
-            if delta.content:
+            if delta and delta.content:
                 yield delta.content
 
     async def chat_with_tools(self, request: LlmRequest) -> LlmResponse:

@@ -107,8 +107,16 @@ class LlmRequest(BaseModel):
     max_tokens: Optional[int] = None
 
 
+class LlmUsage(BaseModel):
+    """LLM token 用量统计"""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
 class LlmResponse(BaseModel):
     """LLM 非流式响应"""
     content: Optional[str] = None
     tool_calls: Optional[list[ToolCall]] = None
     finish_reason: Optional[str] = None
+    usage: Optional[LlmUsage] = None

@@ -22,11 +22,11 @@ llm - 大模型客户端
 from haiji.llm.base import LlmClient
 from haiji.llm.definition import (
     LlmMessage, LlmRequest, LlmResponse, LlmConfig,
-    LlmTool, FunctionDef, ToolCall, MessageRole,
+    LlmTool, FunctionDef, ToolCall, MessageRole, LlmUsage,
 )
 
 __all__ = [
     "LlmClient",
     "LlmMessage", "LlmRequest", "LlmResponse", "LlmConfig",
-    "LlmTool", "FunctionDef", "ToolCall", "MessageRole",
+    "LlmTool", "FunctionDef", "ToolCall", "MessageRole", "LlmUsage",
 ]
