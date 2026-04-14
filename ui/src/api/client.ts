@@ -154,6 +154,21 @@ export const api = {
     return res.json()
   },
 
+  // 群组管理
+  listGroups: async () => {
+    const res = await fetch(`${BASE_URL}/api/groups`)
+    return res.json()
+  },
+
+  createGroup: async (name: string, description: string, members: { agent_code: string; role: string }[]) => {
+    const res = await fetch(`${BASE_URL}/api/groups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description, members }),
+    })
+    return res.json()
+  },
+
   // 获取 Profile（模型配置等）
   getProfile: async () => {
     const res = await fetch(`${BASE_URL}/api/profile`)

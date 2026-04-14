@@ -19,7 +19,7 @@ load_dotenv(
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routers import chat, agents, designer, users
+from server.routers import chat, agents, designer, users, groups
 from server.routers.profile import router as profile_router
 from server.agent_store import load_all_agents
 
@@ -110,6 +110,28 @@ _n = load_all_agents()
 if _n > 0:
     print(f"[startup] 从文件恢复 {_n} 个 Agent")
 
+
+def _create_demo_group() -> None:
+    """创建演示群组（如果不存在）"""
+    from server.group_store import load_group, Group, GroupMember, save_group
+    demo_group_id = "demo_group"
+    if load_group(demo_group_id):
+        return  # 已存在
+    group = Group(
+        group_id=demo_group_id,
+        name="哈基小窝 🏠",
+        description="AI 助手们的聊天室",
+        members=[
+            GroupMember(agent_code="haji_assistant", role="owner"),
+            GroupMember(agent_code="haji_coder", role="member"),
+        ],
+    )
+    save_group(group)
+    print("[startup] 创建演示群组: 哈基小窝")
+
+
+_create_demo_group()
+
 # CORS 全开（开发阶段）
 app.add_middleware(
     CORSMiddleware,
@@ -124,6 +146,7 @@ app.include_router(agents.router, prefix="/api")
 app.include_router(designer.router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
 app.include_router(users.router, prefix="/api")
+app.include_router(groups.router, prefix="/api")
 
 
 @app.get("/health")

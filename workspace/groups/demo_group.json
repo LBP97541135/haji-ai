@@ -1,0 +1,15 @@
+{
+  "group_id": "demo_group",
+  "name": "哈基小窝 🏠",
+  "description": "AI 助手们的聊天室",
+  "members": [
+    {
+      "agent_code": "haji_assistant",
+      "role": "owner"
+    },
+    {
+      "agent_code": "haji_coder",
+      "role": "member"
+    }
+  ]
+}
